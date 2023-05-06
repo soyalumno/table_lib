@@ -60,6 +60,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.primary_key = primary_key;
     this.rowFactory = rowFactory;
     this.ss = SpreadsheetApp.getActive();
+    this.getExistRecords();
   }
 
   /** 二次元のテーブルデータを見出しをキーとしたオブジェクト配列に変換する */
