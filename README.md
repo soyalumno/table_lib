@@ -21,7 +21,6 @@ https://user-images.githubusercontent.com/33917383/236586101-5f837378-581f-4e76-
 ```javascript
 // テーブル範囲・主キーを指定してTableクラスを生成
 const tbl = table_lib.buildTable('main!A1:ZZ', 'ID');
-tbl.getExistRecords();
 ```
 
 ### シートの初期化

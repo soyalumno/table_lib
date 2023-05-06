@@ -3,7 +3,6 @@ class PrivateFunc {
   static tableSample() {
     // シート名・主キーを指定してTableクラスを生成
     const tbl = buildTable<cHeader, cRow, cHash>('main!A1:ZZ', 'ID');
-    tbl.getExistRecords();
 
     // テーブルを全てクリアして、新規データベースをセット
     // - 既存データがあるならセット不要
