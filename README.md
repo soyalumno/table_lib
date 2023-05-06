@@ -53,10 +53,23 @@ tbl.resetTable([{ ID: '101', foo: 'test' }, { ID: '102', foo: 'test2' }])
 
 テーブルのカラム名、各データへのアクセスをオブジェクトのプロパティとして提供します
 
+- `Table.sheet` : テーブル範囲の属するシート名
+- `Table.head_row` : カラム行番号
+- `Table.head_col` : 先頭列名(ex. A,B,C...)
 - `Table.head` : テーブル範囲の1行目をカラム名の配列として保持
 - `Table.hashes` : テーブル範囲の2行目以降をカラム名をキーとしたオブジェクト配列として保持
 - `Table.records` : テーブル範囲の2行目以降を`TRow`の配列として保持
     - `TRow` : 行オブジェクト.行番号の取得やオブジェクトを配列化するメソッドを備える.メソッドの振る舞いは`Table`クラスのコンストラクタで上書き可能
+
+```javascript
+console.log(tbl.head); // -> [ 'ID', 'foo' ]
+console.log(tbl.hashes);// -> [ { ID: '101', foo: 'test' }, { ID: '102', foo: 'test2' } ]
+var record = tbl.findRecord({ ID: '101' });
+console.log(record.row); // -> 2
+console.log(record.head); // -> [ 'ID', 'foo' ]
+console.log(record.hash); // -> { ID: '101', foo: 'test' }
+console.log(record.toValues()); // -> [ '101', 'test' ]
+```
 
 ### データの検索
 
