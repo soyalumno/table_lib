@@ -130,7 +130,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     if (data.length > 0) {
       // シートをクリア
       Sheets.Spreadsheets?.Values?.batchClear(
-        { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:ZZ`] },
+        { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
         this.ss.getId()
       );
       // シートを上書き
