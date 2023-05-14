@@ -2,8 +2,12 @@
 class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 見出し行番号 */
   head_row: number;
+  /** 最終行番号 */
+  tail_row: number;
   /** 先頭列 */
   head_col: string;
+  /** 最終列 */
+  tail_col: string;
   /** シート名 */
   sheet: string;
   /** テーブル範囲 */
@@ -55,7 +59,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.sheet = sheet;
     const head_row = parseInt(a1note.split(':')[0].replace(/[^\d]+/, ''));
     this.head_row = isNaN(head_row) ? 1 : head_row;
+    this.tail_row = parseInt(a1note.split(':')[1].replace(/[^\d]+/, '')); // NaNの場合は''で置換すること
     this.head_col = a1note.split(':')[0].replace(/(\d+)/, '');
+    this.tail_col = a1note.split(':')[1].replace(/(\d+)/, '');
     this.range = range;
     this.primary_key = primary_key;
     this.rowFactory = rowFactory;
