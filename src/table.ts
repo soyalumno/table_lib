@@ -118,26 +118,23 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   /** 指定したデータでテーブルを再作成する */
   resetTable(records: THash[] | TRow[]) {
-    const data = records.map((r) => Table.isTRow(r) ? (r.hash as THash) : r)
-      .map((hash, i) => {
-        const data: GoogleAppsScript.Sheets.Schema.ValueRange = {
-          range: `${this.sheet}!${this.head_col}${this.head_row + 1 + i}`,
-          values: [this.rowFactory(this.head, hash).toValues()],
-        };
-        return data;
-      });
+    const values = records
+      .map((r) => Table.isTRow(r) ? r.hash : r)
+      .map((hash) => this.rowFactory(this.head, hash as THash).toValues())
 
-    if (data.length > 0) {
+    if (values.length > 0) {
       // シートをクリア
       Sheets.Spreadsheets?.Values?.batchClear(
         { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
         this.ss.getId()
       );
       // シートを上書き
-      Sheets.Spreadsheets?.Values?.batchUpdate({
-        valueInputOption: 'USER_ENTERED',
-        data,
-      }, this.ss.getId());
+      Sheets.Spreadsheets?.Values?.append(
+        { values },
+        this.ss.getId(),
+        `${this.sheet}!${this.head_col}${this.head_row + 1}`,
+        { valueInputOption: 'USER_ENTERED' }
+      );
       // プロパティ更新
       this.getExistRecords();
     }
