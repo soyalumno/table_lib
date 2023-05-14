@@ -163,6 +163,11 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     }
   }
 
+  /** recordsの内容をシートに反映 */
+  save() {
+    this.updateRecords(this.records);
+  }
+
   /** 指定したデータをテーブルの末尾に追記する */
   appendRecords(records: THash[] | TRow[]) {
     // 追記用二次元配列を生成
