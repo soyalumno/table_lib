@@ -151,12 +151,12 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       .map((r) => Table.isTRow(r) ? r.hash : r)
       .map((hash) => this.rowFactory(this.head, hash as THash).toValues())
 
+    // シートをクリア
+    Sheets.Spreadsheets?.Values?.batchClear(
+      { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
+      this.ss.getId()
+    );
     if (values.length > 0) {
-      // シートをクリア
-      Sheets.Spreadsheets?.Values?.batchClear(
-        { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
-        this.ss.getId()
-      );
       // シートを上書き
       Sheets.Spreadsheets?.Values?.append(
         { values },
