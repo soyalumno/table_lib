@@ -28,6 +28,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     useFirstColumn: boolean, /** 同名の列がある場合、先頭の列を優先 */
   };
 
+  /** batchGetのレンダリングオプション */
+  valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA';
+
   /** 具象Rowオブジェクトの生成処理 */
   rowFactory: (head: THeader[], hash: THash, row?: number) => TRow;
 
@@ -71,7 +74,19 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.primary_key = primary_key;
     this.rowFactory = rowFactory;
     this.ss = SpreadsheetApp.getActive();
+    this.valueRenderOption = 'FORMATTED_VALUE';
     this.toRecordsOption = { useFirstColumn: true };
+    this.getExistRecords();
+  }
+
+  /**
+   * レンダリングオプションの変更
+   * FORMATTED_VALUE: セルの表示される形式で値を取得します。数値や日付は文字列として返されますが、数式は評価された値として返されます。
+   * UNFORMATTED_VALUE: セルのフォーマットを無視して、値を取得します。数値や日付も数値型として返されます。
+   * FORMULA: セルの数式を取得します。数式が存在する場合はそのまま返されます。
+   */
+  setValueRenderOption(option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA') {
+    this.valueRenderOption = option;
     this.getExistRecords();
   }
 
@@ -110,6 +125,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     // テーブル範囲の２次元配列を取得
     const resp = Sheets.Spreadsheets?.Values?.batchGet(this.ss.getId(), {
       ranges: [this.range],
+      valueRenderOption: this.valueRenderOption,
     });
     const df = resp?.valueRanges?.[0].values || [[]];
 
