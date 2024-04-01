@@ -172,15 +172,31 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 指定したデータでシートを上書きする(一致するデータが無ければ上書きしない) */
   updateRecords(records: THash[] | TRow[]) {
     // 上書き範囲の配列を生成
-    const data = records.map((r) => Table.isTRow(r) ? (r.hash as THash) : r)
-      .reduce((acc, hash) => {
-        const record = this.findRecord(hash);
+    let next_row = this.lastRow() + 1;
+    const data = records
+      .map((r) => {
+        // Table.isTRow(r) ? (r.hash as THash) : r
+        let record = this.findRecord(r);
         if (record) {
-          acc.push({
-            range: `${this.sheet}!${this.head_col}${record.row}`,
-            values: [this.rowFactory(this.head, hash, record.row).toValues()],
-          });
+          if (Table.isTRow(r)) {
+            record = r;
+          } else {
+            record.hash = r;
+          }
+          // primary_keyは上書き不要
+          delete record.hash[this.primary_key];
+        } else {
+          // 見つからない場合は末尾に追記
+          record = this.rowFactory(this.head, (Table.isTRow(r) ? r.hash : r) as THash, next_row);
+          next_row += 1;
         }
+        return record;
+      })
+      .reduce((acc, record) => {
+        acc.push({
+          range: `${this.sheet}!${this.head_col}${record.row}`,
+          values: [record.toValues()],
+        });
         return acc;
       }, [] as GoogleAppsScript.Sheets.Schema.ValueRange[])
 
