@@ -185,6 +185,10 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       }, [] as GoogleAppsScript.Sheets.Schema.ValueRange[])
 
     if (data.length > 0) {
+      // flush the data
+      SpreadsheetApp.flush();
+      this.resize(next_row - 1, this.colname2number(this.head_col) + this.head.length - 1);
+
       // シートを上書き
       Sheets.Spreadsheets?.Values?.batchUpdate({
         valueInputOption: 'USER_ENTERED',
