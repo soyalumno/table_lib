@@ -105,7 +105,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   /** データが存在する最終行を探す */
   lastRow() {
-    const [last_record] = this.records.slice(-1);
+    const [last_record] = this.records.filter((r) => r.hash[this.primary_key] !== '').slice(-1);
     return last_record?.row || this.head_row;
   }
 
