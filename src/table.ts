@@ -120,6 +120,11 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     );
   }
 
+  /** 指定したキーと一致する先頭のRecordを返す */
+  findByKey(key: THeader, value: string) {
+    return this.records.find(({ hash }) => hash[key] === value);
+  }
+
   /** 指定した範囲のデータをRow形式で取得 */
   getExistRecords() {
     // テーブル範囲の２次元配列を取得
@@ -213,6 +218,35 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       // プロパティ更新
       this.getExistRecords();
     }
+  }
+
+  /** 指定した列でデータを並び替え */
+  sortRecords(column: THeader, ascending = true) {
+    const s = this.ss.getSheetByName(this.sheet);
+    const rng = s?.getRange(this.range);
+    rng?.getFilter()?.remove();
+    rng?.createFilter().sort(this.head.indexOf(column) + this.colname2number(this.head_col), ascending);
+  }
+
+  // シートのグリッドサイズを変更(縮小は不可)
+  resize(rows: number, columns: number) {
+    const s = this.ss.getSheetByName(this.sheet);
+    if (!s)
+      return;
+    const maxrow = s.getMaxRows() || 1;
+    const maxcol = s.getMaxColumns() || 1;
+    (maxcol < columns) && (s.insertColumnsAfter(maxcol, columns - maxcol));
+    (maxrow < rows) && (s.insertRowsAfter(maxrow, rows - maxrow));
+  }
+
+  /** アルファベットを列番号に変換 */
+  colname2number(column_name: string) {
+    const base = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const column_number = column_name.toUpperCase().split('').reduce((acc, c) => {
+      acc = acc * 26 + base.indexOf(c) + 1;
+      return acc;
+    }, 0);
+    return column_number;
   }
 }
 
