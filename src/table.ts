@@ -23,6 +23,11 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** データ実体 */
   hashes: THash[] = [];
 
+  /** 変換オプション */
+  toRecordsOption?: {
+    useFirstColumn: boolean, /** 同名の列がある場合、先頭の列を優先 */
+  };
+
   /** 具象Rowオブジェクトの生成処理 */
   rowFactory: (head: THeader[], hash: THash, row?: number) => TRow;
 
@@ -66,6 +71,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.primary_key = primary_key;
     this.rowFactory = rowFactory;
     this.ss = SpreadsheetApp.getActive();
+    this.toRecordsOption = { useFirstColumn: true };
     this.getExistRecords();
   }
 
@@ -74,7 +80,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     const [head, ...values_arr] = df;
     return values_arr.map((values) =>
       head.reduce((acc, col, i) => {
-        (acc as iHash)[col.toString()] = values[i]?.toString() || '';
+        // 同じ見出しが複数ある場合は、オプションをチェック
+        if (!(acc as iHash)[col.toString()] || !this.toRecordsOption?.useFirstColumn)
+          (acc as iHash)[col.toString()] = values[i]?.toString() || '';
         return acc;
       }, {} as THash)
     );
