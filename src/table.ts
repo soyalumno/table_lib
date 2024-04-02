@@ -54,7 +54,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         row: row || NaN,
         /** Hashを見出しの順番に従った配列に変換する */
         toValues() {
-          return this.head.map((col) => hash[col] === 'NaN' ? undefined : hash[col]);
+          return this.head.map((col) => this.hash[col] === 'NaN' ? undefined : this.hash[col]);
         },
         /** 指定したHashが一致しているか比較 */
         isEqual(other: THash) {
