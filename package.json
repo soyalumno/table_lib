@@ -3,7 +3,8 @@
   "scripts": {
     "build": "./node_modules/.bin/tsc",
     "lint": "./node_modules/.bin/eslint src/*.ts",
-    "deploy": "npm run build && clasp push",
+    "push": "npm run build && clasp push",
+    "deploy": "npm run push && ./deploy.sh",
     "watch": "./node_modules/.bin/tsc-watch --onSuccess \"clasp push\""
   },
   "devDependencies": {
