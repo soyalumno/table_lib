@@ -103,6 +103,16 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     );
   }
 
+  /** 見出し名を列名に変換する */
+  toCol(key: THeader) {
+    return this.numeric2Colname(this.colname2number(this.head_col) + this.head.indexOf(key));
+  }
+
+  /** 列名を見出し名に変換する */
+  toKey(col: string) {
+    return this.head[this.colname2number(col) - this.colname2number(this.head_col)];
+  }
+
   /** データが存在する最終行を探す */
   lastRow() {
     const [last_record] = this.records.filter((r) => r.hash[this.primary_key] !== '').slice(-1);
@@ -267,6 +277,23 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       return acc;
     }, 0);
     return column_number;
+  }
+
+  /** 列番号をアルファベットに変換 */
+  numeric2Colname(num: number) {
+    /** アルファベット総数 */
+    const RADIX = 26;
+    /** Aの文字コード */
+    const A = 'A'.charCodeAt(0);
+
+    let n = num;
+    let s = '';
+    while (n >= 1) {
+      n--;
+      s = String.fromCharCode(A + (n % RADIX)) + s;
+      n = Math.floor(n / RADIX);
+    }
+    return s;
   }
 }
 
