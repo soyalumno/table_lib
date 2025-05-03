@@ -12,9 +12,20 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   sheet: string;
   /** テーブル範囲 */
   range: string;
+  offset: number;
   /** Hashの主キー */
   primary_key: string;
-  ss: GoogleAppsScript.Spreadsheet.Spreadsheet;
+
+  private _ss?: GoogleAppsScript.Spreadsheet.Spreadsheet;
+  get ss() {
+    if (this._ss)
+      return this._ss;
+    const ss = SpreadsheetApp.openById(this.ssId);
+    this._ss = ss;
+    return ss;
+  }
+
+  ssId: string;
 
   /** 見出し */
   head: THeader[] = [];
@@ -23,16 +34,15 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** データ実体 */
   hashes: THash[] = [];
 
+  private recordMap: Map<string, TRow> = new Map();
+
   /** 変換オプション */
-  toRecordsOption?: {
+  toHashOption?: {
     useFirstColumn: boolean, /** 同名の列がある場合、先頭の列を優先 */
   };
 
   /** batchGetのレンダリングオプション */
   valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA';
-
-  /** 具象Rowオブジェクトの生成処理 */
-  rowFactory: (head: THeader[], hash: THash, row?: number) => TRow;
 
   /** Type Guard */
   static isTRow<TRow extends iRow>(value: any): value is TRow {
@@ -43,26 +53,12 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
    * Tableクラスコンストラクタ
    * @param range テーブル範囲文字列
    * @param primary_key 主キーのカラム名文字列
-   * @param rowFactory 具象Rowオブジェクト生成用処理
    */
-  constructor(range: string, primary_key: string, rowFactory: (head: THeader[], hash: THash, row?: number) => TRow
-    = (head, hash, row) => {
-      const primary_key = this.primary_key;
-      const row_object: iRow = {
-        head,
-        hash,
-        row: row || NaN,
-        /** Hashを見出しの順番に従った配列に変換する */
-        toValues() {
-          return this.head.map((col) => this.hash[col] === 'NaN' ? undefined : this.hash[col]);
-        },
-        /** 指定したHashが一致しているか比較 */
-        isEqual(other: THash) {
-          return this.hash[primary_key] === other[primary_key];
-        }
-      }
-      return row_object as TRow;
-    }) {
+  constructor(range: string, primary_key = '', options: {
+    ssId?: string,
+    noloading?: boolean,
+    offset?: number,
+  } = {}) {
     const [sheet, a1note] = range.split('!');
     this.sheet = sheet;
     const head_row = parseInt(a1note.split(':')[0].replace(/[^\d]+/, ''));
@@ -72,10 +68,62 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.tail_col = a1note.split(':')[1].replace(/(\d+)/, '');
     this.range = range;
     this.primary_key = primary_key;
-    this.rowFactory = rowFactory;
-    this.ss = SpreadsheetApp.getActive();
+    if (options.ssId) {
+      this.ssId = options.ssId;
+    } else {
+      this._ss = SpreadsheetApp.getActive();
+      this.ssId = this.ss.getId();
+    }
     this.valueRenderOption = 'FORMATTED_VALUE';
-    this.toRecordsOption = { useFirstColumn: true };
+    this.toHashOption = { useFirstColumn: true };
+    this.offset = options.offset || 0;
+    if (options.noloading !== true)
+      this.getExistRecords();
+  }
+
+  /**
+   * ヘッダー行の作成
+   */
+  create(head: THeader[]) {
+    // シートをクリア
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.batchClear(
+        { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
+        this.ssId,
+      ));
+
+    // シートを上書き
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.append(
+        { values: [head] },
+        this.ssId,
+        `${this.sheet}!${this.head_col}${this.head_row}`,
+        { valueInputOption: 'USER_ENTERED' }
+      ));
+    // プロパティ更新
+    this.getExistRecords();
+  }
+
+  /** 見出し行の変更 */
+  migration(head: THeader[]) {
+    // 同じ見出しの場合は何もしない
+    if (head.every((col, i) => col === this.head[i]))
+      return;
+
+    // 見出し行をクリア
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.batchClear(
+        { ranges: [`${this.sheet}!${this.head_col}${this.head_row}:${this.tail_col}${this.head_row}`] },
+        this.ssId,
+      ));
+    // シートを上書き
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.append(
+        { values: [head] },
+        this.ssId,
+        `${this.sheet}!${this.head_col}${this.head_row}`,
+        { valueInputOption: 'USER_ENTERED' }
+      ));
     this.getExistRecords();
   }
 
@@ -90,22 +138,13 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.getExistRecords();
   }
 
-  /** 二次元のテーブルデータを見出しをキーとしたオブジェクト配列に変換する */
-  toRecords(df: any[][]): THash[] {
-    const [head, ...values_arr] = df;
-    return values_arr.map((values) =>
-      head.reduce((acc, col, i) => {
-        // 同じ見出しが複数ある場合は、オプションをチェック
-        if (!(acc as iHash)[col.toString()] || !this.toRecordsOption?.useFirstColumn)
-          (acc as iHash)[col.toString()] = values[i]?.toString() || '';
-        return acc;
-      }, {} as THash)
-    );
-  }
-
   /** 見出し名を列名に変換する */
-  toCol(key: THeader) {
-    return this.numeric2Colname(this.colname2number(this.head_col) + this.head.indexOf(key));
+  toCol(key: THeader, nth = 0) {
+    const indices = this.head.reduce((acc, v, i) => {
+      v === key && acc.push(i);
+      return acc;
+    }, [] as number[]);
+    return this.numeric2Colname(this.colname2number(this.head_col) + indices[nth] ?? 0);
   }
 
   /** 列名を見出し名に変換する */
@@ -114,19 +153,20 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 
   /** データが存在する最終行を探す */
-  lastRow() {
-    const [last_record] = this.records.filter((r) => r.hash[this.primary_key] !== '').slice(-1);
+  lastRow(key = this.primary_key) {
+    const [last_record] = this.records.filter((r) => r.hash[key] !== '').slice(-1);
     return last_record?.row || this.head_row;
   }
 
   /**
    * 条件にマッチする先頭のRecordを返す
-   * @param target 検索条件(Hash or Row or RowNumber)
+   * @param target 検索条件(Hash or Row)
    */
-  findRecord(target: THash | TRow | number) {
-    return this.records.find((r) =>
-      Table.isTRow(target) ? r.isEqual(target.hash) : (typeof target === 'number') ?
-        r.row === target : r.isEqual(target)
+  findRecord(target: THash | TRow) {
+    if (this.recordMap.size === 0)
+      return;
+    return this.recordMap.get(
+      Table.isTRow(target) ? target.hash[this.primary_key] : target[this.primary_key]
     );
   }
 
@@ -136,93 +176,120 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 
   /** 指定した範囲のデータをRow形式で取得 */
-  getExistRecords() {
+  getExistRecords(): TRow[] {
+    // オフセットがある場合、範囲を調整
+    const ranges = this.offset > 0 ?
+      [
+        `${this.sheet}!${this.head_col}${this.head_row}:${this.tail_col}${this.head_row}`,
+        `${this.sheet}!${this.head_col}${this.head_row + 1 + this.offset}:${this.tail_col}${this.tail_row || ''}`,
+      ] :
+      [this.range];
+
     // テーブル範囲の２次元配列を取得
-    const resp = Sheets.Spreadsheets?.Values?.batchGet(this.ss.getId(), {
-      ranges: [this.range],
+    const resp = this.retry(() => Sheets.Spreadsheets?.Values?.batchGet(this.ssId, {
+      ranges,
       valueRenderOption: this.valueRenderOption,
-    });
-    const df = resp?.valueRanges?.[0].values || [[]];
+    }));
+    // レコードのインデックスをクリア
+    this.recordMap.clear();
+    const valueRanges = resp?.valueRanges || [];
+    const df = valueRanges.map((vr) => vr.values || []).flat();
+    if (df.length === 0) {
+      this.head = [];
+      this.records = [];
+      this.hashes = [];
+      return [];
+    }
 
     // Row形式の配列を生成
-    const [head] = df as THeader[][];
-    const records = this.toRecords(df).map((hash, i) =>
-      this.rowFactory(head, hash, this.head_row + 1 + i)
-    )
+    const head = df[0].map((h) => h.toString().trim() as THeader);
+
+    // set first column as primary key if not set
+    this.primary_key === '' && (this.primary_key = head?.[0] || 'id');
+
+    const hashes = this.toHash(df);
+    const records = hashes.map((hash, i) => {
+      const record = this.rowFactory(head, hash, this.head_row + 1 + this.offset + i);
+      this.recordMap.set(hash[this.primary_key], record as TRow);
+      return record;
+    });
+
     this.head = head;
     this.records = records;
-    this.hashes = records.map((r) => r.hash as THash);
-    return { head, records };
+    this.hashes = hashes;
+    return records;
   }
 
   /** 指定したデータでテーブルを再作成する */
-  resetTable(records: THash[] | TRow[]) {
-    const values = records
-      .map((r) => Table.isTRow(r) ? r.hash : r)
-      .map((hash) => this.rowFactory(this.head, hash as THash).toValues())
-
+  resetTable(records: THash[] | TRow[], options: {
+    noloading?: boolean
+  } = {}) {
+    const values = records.map((r) => this.toValues(r));
     // シートをクリア
-    Sheets.Spreadsheets?.Values?.batchClear(
-      { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
-      this.ss.getId()
-    );
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.batchClear(
+        { ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] },
+        this.ssId,
+      ));
     if (values.length > 0) {
       // シートを上書き
-      Sheets.Spreadsheets?.Values?.append(
-        { values },
-        this.ss.getId(),
-        `${this.sheet}!${this.head_col}${this.head_row + 1}`,
-        { valueInputOption: 'USER_ENTERED' }
-      );
-      // プロパティ更新
-      this.getExistRecords();
+      this.retry(() =>
+        Sheets.Spreadsheets?.Values?.append(
+          { values },
+          this.ssId,
+          `${this.sheet}!${this.head_col}${this.head_row + 1}`,
+          { valueInputOption: 'USER_ENTERED' }
+        ));
     }
+    // プロパティ更新
+    if (options.noloading !== true)
+      this.getExistRecords();
   }
 
-  /** 指定したデータでシートを上書きする(一致するデータが無ければ上書きしない) */
-  updateRecords(records: THash[] | TRow[]) {
+  /** 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加) */
+  updateRecords(records: THash[] | TRow[], rows?: number[]) {
     // 上書き範囲の配列を生成
     let next_row = this.lastRow() + 1;
-    const data = records
-      .map((r) => {
-        // Table.isTRow(r) ? (r.hash as THash) : r
-        let record = this.findRecord(r);
-        if (record) {
-          if (Table.isTRow(r)) {
-            record = r;
-          } else {
-            record.hash = r;
-          }
-          // primary_keyは上書き不要
-          delete record.hash[this.primary_key];
-        } else {
-          // 見つからない場合は末尾に追記
-          record = this.rowFactory(this.head, (Table.isTRow(r) ? r.hash : r) as THash, next_row);
-          next_row += 1;
-        }
-        return record;
-      })
-      .reduce((acc, record) => {
-        acc.push({
-          range: `${this.sheet}!${this.head_col}${record.row}`,
-          values: [record.toValues()],
-        });
-        return acc;
-      }, [] as GoogleAppsScript.Sheets.Schema.ValueRange[])
+    const dirty_rows: number[] = [];
+    const data = records.map((r, i) => {
+      // 書き込み先の行番号を取得
+      const exist = rows ? undefined : this.findRecord(r);
+      const row = rows?.[i] || exist?.row || next_row++;
+
+      // 書き込みデータを生成(shallow copy)
+      const hash = (() => {
+        const hash = Table.isTRow(r) ? r.hash : r;
+        return { ...hash };
+      })();
+      // primary_keyが存在する場合は削除
+      if (exist)
+        delete hash[this.primary_key];
+      const data: GoogleAppsScript.Sheets.Schema.ValueRange = {
+        range: `${this.sheet}!${this.head_col}${row}`,
+        values: [this.toValues(hash as THash)],
+      };
+      dirty_rows.push(row);
+      return data;
+    });
 
     if (data.length > 0) {
       // flush the data
       SpreadsheetApp.flush();
-      this.resize(next_row - 1, this.colname2number(this.head_col) + this.head.length - 1);
+      this.resize(Math.max(...dirty_rows), this.colname2number(this.head_col) + this.head.length - 1);
 
       // シートを上書き
-      Sheets.Spreadsheets?.Values?.batchUpdate({
-        valueInputOption: 'USER_ENTERED',
-        data,
-      }, this.ss.getId());
+      this.retry(() =>
+        Sheets.Spreadsheets?.Values?.batchUpdate({
+          valueInputOption: 'USER_ENTERED',
+          data,
+        }, this.ssId));
       // プロパティ更新
       this.getExistRecords();
     }
+    return {
+      dirty_rows,
+      dirty_records: this.records.filter((r) => dirty_rows.includes(r.row)),
+    };
   }
 
   /** recordsの内容をシートに反映 */
@@ -233,21 +300,39 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 指定したデータをテーブルの末尾に追記する */
   appendRecords(records: THash[] | TRow[]) {
     // 追記用二次元配列を生成
-    const values = records
-      .map((r) => Table.isTRow(r) ? r.hash : r)
-      .map((hash) => this.rowFactory(this.head, hash as THash).toValues())
-
+    const values = records.map((r) => this.toValues(r));
     // シートの末尾に追記
     if (values.length > 0) {
-      Sheets.Spreadsheets?.Values?.append(
-        { values },
-        this.ss.getId(),
-        `${this.sheet}!${this.head_col}${this.lastRow() + 1}`,
-        { valueInputOption: 'USER_ENTERED' }
-      );
+      this.retry(() =>
+        Sheets.Spreadsheets?.Values?.append(
+          { values },
+          this.ssId,
+          `${this.sheet}!${this.head_col}${this.lastRow() + 1}`,
+          { valueInputOption: 'USER_ENTERED' }
+        ));
       // プロパティ更新
       this.getExistRecords();
     }
+  }
+
+  /** 指定したレコードを削除 */
+  deleteRecords(records: THash[] | TRow[]) {
+    const rows = records
+      .map((record) => Table.isTRow(record) ? record.row : this.findRecord(record)?.row)
+      .filter((row) => row !== undefined) as number[];
+    this.deleteRecordsFromRow(rows);
+  }
+  deleteRecordsFromRow(rows: number[]) {
+    const data = rows.map((row): GoogleAppsScript.Sheets.Schema.ValueRange => ({
+      range: `${this.sheet}!${this.head_col}${row}`,
+      values: [this.head.map(() => '')],
+    }));
+    this.retry(() =>
+      Sheets.Spreadsheets?.Values?.batchUpdate({
+        valueInputOption: 'USER_ENTERED',
+        data
+      }, this.ssId));
+    this.getExistRecords();
   }
 
   /** 指定した列でデータを並び替え */
@@ -294,6 +379,85 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       n = Math.floor(n / RADIX);
     }
     return s;
+  }
+
+  /**
+   * 指定された関数を実行し、エラーが発生した場合はリトライする
+   */
+  retry<T>(
+    callback: (...args: any[]) => T,
+    options: {
+      maxRetries?: number,
+      delay?: number,
+      backoffFactor?: number,
+      retryableErrors?: (new (...args: any[]) => Error)[]
+    } = {},
+  ): T {
+    const {
+      maxRetries = 3,
+      delay = 500,
+      backoffFactor = 1.5,
+      retryableErrors = [Error]
+    } = options;
+
+    for (const i of [...Array(maxRetries).keys()]) {
+      try {
+        return callback();
+      } catch (e) {
+        if (i === maxRetries - 1 || !retryableErrors.some((err) => e instanceof err))
+          throw e;
+        Utilities.sleep(delay * Math.pow(backoffFactor, i));
+      }
+    }
+    throw new Error('unreachable');
+  }
+
+  /** Range.getValuesのラッパー */
+  getValues(range: string): any[][] {
+    return this.ss.getRange(`${this.sheet}!${range}`).getValues();
+  }
+  /** Range.setValueのラッパー */
+  getValue(range: string): any {
+    return this.ss.getRange(`${this.sheet}!${range}`).getValues().flat()[0];
+  }
+  /** Range.setValuesのラッパー */
+  setValues(range: string, values: string[][]) {
+    this.ss.getRange(`${this.sheet}!${range}`).setValues(values);
+  }
+  /** Range.setValueのラッパー */
+  setValue(range: string, value: any) {
+    this.ss.getRange(`${this.sheet}!${range}`).setValues([[value]]);
+  }
+
+  private rowFactory(head: THeader[], hash: THash, row?: number): TRow {
+    const row_object: iRow = {
+      head,
+      hash,
+      row: row || NaN,
+    };
+    return row_object as TRow;
+  }
+
+  private toValues(record: THash | TRow) {
+    const hash = Table.isTRow(record) ? record.hash : record;
+    return this.head.map((col) => hash[col] === 'NaN' ? undefined : hash[col]);
+  }
+
+  /** 二次元のテーブルデータを見出しをキーとしたオブジェクト配列に変換する */
+  private toHash(df: any[][], option?: { useFirstColumn: boolean }): THash[] {
+    const useFirstColumn = option?.useFirstColumn ?? this.toHashOption?.useFirstColumn ?? true;
+    const [head, ...values_arr] = df;
+
+    return values_arr.map((values) => {
+      const hash = {} as THash;
+      head.forEach((key, i) => {
+        key = key.toString().trim();
+        // 同じ見出しが複数ある場合は、オプションをチェック
+        if (!(key in hash) || !useFirstColumn)
+          (hash as iHash)[key] = values[i]?.toString() || '';
+      });
+      return hash;
+    });
   }
 }
 

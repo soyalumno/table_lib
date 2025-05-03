@@ -2,7 +2,10 @@ class PrivateFunc {
   /** Tableクラスのサンプルコード */
   static tableSample() {
     // シート名・主キーを指定してTableクラスを生成
-    const tbl = buildTable<cHeader, cRow, cHash>('main!A1:ZZ', 'ID');
+    const tbl = buildTable<
+      TableDef.Main.Header,
+      TableDef.Main.Row,
+      TableDef.Main.Hash>('main!A1:ZZ', 'ID');
 
     // テーブルを全てクリアして、新規データベースをセット
     // - 既存データがあるならセット不要
@@ -13,10 +16,10 @@ class PrivateFunc {
     console.log(tbl.hashes);
 
     // 特定のデータを検索して行番号を取得
-    console.log(tbl.findRecord({ ID: '101' } as cHash)?.row);
+    console.log(tbl.findRecord({ ID: '101' } as TableDef.Main.Hash)?.row);
 
     // データを指定して更新
-    const record = tbl.findRecord({ ID: '102' } as cHash);
+    const record = tbl.findRecord({ ID: '102' } as TableDef.Main.Hash);
     if (record) {
       record.hash.foo = 'updated'
       tbl.updateRecords([record]);
