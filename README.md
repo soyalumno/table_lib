@@ -101,3 +101,178 @@ tbl.appendRecords([{ ID: '1004', foo: 'appended' }]);
 ## サンプルコード
 
 [src/sample.ts](https://github.com/soyalumno/table_lib/blob/main/src/sample.ts)
+
+
+# Reference
+
+`Table`クラスは、Google Spreadsheetのテーブル範囲を読み書きするための抽象クラスです。ヘッダー行をキーとしてデータを取得・操作できます。
+
+## 基本情報
+
+このクラスは型パラメータを3つ受け取ります：
+- `THeader` - ヘッダー行の型（`iHeader`を継承）
+- `TRow` - 行データの型（`iRow`を継承）
+- `THash` - ハッシュデータの型（`iHash`を継承）
+
+## コンストラクタ
+
+```typescript
+constructor(
+  range: string,              // テーブル範囲（例: 'シート1!A1:Z100'）
+  primary_key = '',           // 主キーのカラム名
+  options = {
+    ssId?: string,            // スプレッドシートID（省略時は現在アクティブなスプレッドシート）
+    noloading?: boolean,      // true時、コンストラクタでデータ読み込みを行わない
+    offset?: number           // ヘッダー行と最初のデータ行の間のオフセット行数
+  }
+)
+```
+
+## プロパティ
+
+| プロパティ名 | 型 | 説明 |
+|------------|-----|------|
+| `head_row` | `number` | 見出し行の行番号 |
+| `tail_row` | `number` | 最終行の行番号 |
+| `head_col` | `string` | テーブルの先頭列（例: 'A'） |
+| `tail_col` | `string` | テーブルの最終列（例: 'Z'） |
+| `sheet` | `string` | シート名 |
+| `range` | `string` | テーブル範囲（例: 'シート1!A1:Z100'） |
+| `offset` | `number` | ヘッダー行と最初のデータ行の間のオフセット行数 |
+| `primary_key` | `string` | 主キーのカラム名 |
+| `ss` | `GoogleAppsScript.Spreadsheet.Spreadsheet` | スプレッドシートオブジェクト |
+| `ssId` | `string` | スプレッドシートID |
+| `head` | `THeader[]` | ヘッダー行の配列 |
+| `records` | `TRow[]` | データ行オブジェクトの配列 |
+| `hashes` | `THash[]` | データハッシュの配列 |
+| `valueRenderOption` | `'FORMATTED_VALUE' \| 'UNFORMATTED_VALUE' \| 'FORMULA'` | 値取得時のレンダリングオプション |
+
+## メソッド
+
+### テーブル作成・操作
+
+#### `create(head: THeader[])`
+ヘッダー行を作成し、既存データをクリアします。
+
+#### `migration(head: THeader[])`
+ヘッダー行を変更します。既存のヘッダーと同じ場合は何もしません。
+
+#### `resetTable(records: THash[] | TRow[], options = { noloading?: boolean })`
+指定したデータでテーブルを再作成します。既存データは削除されます。
+
+#### `updateRecords(records: THash[] | TRow[], rows?: number[])`
+指定したデータでシートを上書きします。一致するデータが無ければ末尾に追加します。
+- `rows`: 書き込み先の行番号を指定できます
+
+#### `save()`
+`records`の内容をシートに反映します。
+
+#### `appendRecords(records: THash[] | TRow[])`
+指定したデータをテーブルの末尾に追記します。
+
+#### `deleteRecords(records: THash[] | TRow[])`
+指定したレコードを削除します（行を空白にします）。
+
+#### `deleteRecordsFromRow(rows: number[])`
+指定した行番号のレコードを削除します。
+
+#### `sortRecords(column: THeader, ascending = true)`
+指定した列でデータを並び替えます。
+
+### データ取得・検索
+
+#### `getExistRecords(): TRow[]`
+テーブル範囲のデータを読み込み、`records`、`hashes`、`head`を更新します。
+
+#### `findRecord(target: THash | TRow)`
+主キーに一致するレコードを返します。
+
+#### `findByKey(key: THeader, value: string)`
+指定したキーと値に一致する最初のレコードを返します。
+
+#### `lastRow(key = this.primary_key)`
+データが存在する最終行の行番号を返します。
+
+### ユーティリティ
+
+#### `setValueRenderOption(option: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA')`
+値取得時のレンダリングオプションを設定します。
+- `FORMATTED_VALUE`: セルの表示形式で値を取得（デフォルト）
+- `UNFORMATTED_VALUE`: フォーマットを無視して値を取得
+- `FORMULA`: セルの数式を取得
+
+#### `toCol(key: THeader, nth = 0)`
+見出し名を列名（例: 'A'）に変換します。
+- `nth`: 同名の列が複数ある場合、何番目の列を取得するか
+
+#### `toKey(col: string)`
+列名（例: 'A'）を見出し名に変換します。
+
+#### `resize(rows: number, columns: number)`
+シートのグリッドサイズを変更します（縮小は不可）。
+
+#### `colname2number(column_name: string)`
+列名（例: 'AA'）を列番号（例: 27）に変換します。
+
+#### `numeric2Colname(num: number)`
+列番号（例: 27）を列名（例: 'AA'）に変換します。
+
+#### `getValues(range: string): any[][]`
+指定した範囲の値を二次元配列で取得します。
+
+#### `getValue(range: string): any`
+指定したセルの値を取得します。
+
+#### `setValues(range: string, values: string[][])`
+指定した範囲に値を設定します。
+
+#### `setValue(range: string, value: any)`
+指定したセルに値を設定します。
+
+#### `retry<T>(callback: (...args: any[]) => T, options?): T`
+指定した関数を実行し、エラーが発生した場合はリトライします。
+- `options.maxRetries`: 最大リトライ回数（デフォルト: 3）
+- `options.delay`: 初回リトライまでの遅延時間（ミリ秒、デフォルト: 500）
+- `options.backoffFactor`: バックオフ係数（デフォルト: 1.5）
+- `options.retryableErrors`: リトライ対象のエラークラス（デフォルト: [Error]）
+
+## スタティックメソッド
+
+#### `static isTRow<TRow extends iRow>(value: any): value is TRow`
+与えられた値が`TRow`型かどうかを判定します（Type Guard）。
+
+## ヘルパー関数
+
+#### `buildTable<THeader extends iHeader, TRow extends iRow, THash extends iHash>(range: string, primary_key: string)`
+`Table`クラスのインスタンスを作成します。
+
+## 使用例
+
+```typescript
+// 顧客テーブルの定義
+interface CustomerHeader extends iHeader {}
+interface CustomerRow extends iRow {
+  hash: CustomerHash;
+}
+interface CustomerHash extends iHash {
+  id: string;
+  name: string;
+  email: string;
+}
+
+// テーブルのインスタンス化
+const customerTable = new Table<CustomerHeader, CustomerRow, CustomerHash>('顧客!A1:D100', 'id');
+
+// データの取得
+const customers = customerTable.records;
+
+// 新規データの追加
+customerTable.appendRecords([{ id: '001', name: '山田太郎', email: 'yamada@example.com' }]);
+
+// データの更新
+const yamada = customerTable.findByKey('name', '山田太郎');
+if (yamada) {
+  yamada.hash.email = 'new-email@example.com';
+  customerTable.save();
+}
+```
