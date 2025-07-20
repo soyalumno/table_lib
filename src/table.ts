@@ -144,7 +144,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       v === key && acc.push(i);
       return acc;
     }, [] as number[]);
-    return this.numeric2Colname(this.colname2number(this.head_col) + indices[nth] ?? 0);
+    return this.numeric2Colname(this.colname2number(this.head_col) + (indices[nth] ?? 0));
   }
 
   /** 列名を見出し名に変換する */
@@ -461,7 +461,15 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 }
 
-function buildTable<THeader extends iHeader, TRow extends iRow, THash extends iHash>(range: string, primary_key: string) {
-  return new Table<THeader, TRow, THash>(range, primary_key);
+function buildTable<
+  THeader extends iHeader,
+  TRow extends iRow,
+  THash extends iHash
+>(range: string, primary_key: string, options: {
+  ssId?: string,
+  noloading?: boolean,
+  offset?: number,
+} = {}): Table<THeader, TRow, THash> {
+  return new Table<THeader, TRow, THash>(range, primary_key, options);
 }
 

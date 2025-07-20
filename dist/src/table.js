@@ -85,7 +85,7 @@ class Table {
             v === key && acc.push(i);
             return acc;
         }, []);
-        return this.numeric2Colname(this.colname2number(this.head_col) + indices[nth] ?? 0);
+        return this.numeric2Colname(this.colname2number(this.head_col) + (indices[nth] ?? 0));
     }
     /** 列名を見出し名に変換する */
     toKey(col) {
@@ -337,6 +337,6 @@ class Table {
         });
     }
 }
-function buildTable(range, primary_key) {
-    return new Table(range, primary_key);
+function buildTable(range, primary_key, options = {}) {
+    return new Table(range, primary_key, options);
 }

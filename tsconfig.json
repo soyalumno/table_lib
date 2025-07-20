@@ -1,10 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2021",
+    "lib": ["ES2021"],
     "rootDir": "./src",
     "outDir": "./dist/src",
     "noEmitOnError": true,
     "strict": true,
     "noImplicitAny": true
-  }
+  },
+  "exclude": [
+    "@types/table.d.ts"
+  ]
 }
