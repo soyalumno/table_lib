@@ -150,31 +150,16 @@ class Table {
     }
     /** 指定したデータでテーブルを再作成する */
     resetTable(records, options = {}) {
-        // batchUpdateで一回のリクエストで処理
-        const data = [];
-        // データ範囲をクリア（空の値で上書き）
-        data.push({
-            range: `${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`,
-            values: [[]],
-        });
-        // 新しいデータを設定
-        if (records.length > 0) {
-            data.push({
-                range: `${this.sheet}!${this.head_col}${this.head_row + 1}`,
-                values: records.map((r) => this.toValues(r)),
-            });
-        }
-        // 一回のbatchUpdateで実行
-        if (options?.dryrun !== true) {
-            this.retry(() => Sheets.Spreadsheets?.Values?.batchUpdate({
-                valueInputOption: 'USER_ENTERED',
-                data,
-            }, this.ssId));
+        const values = records.map((r) => this.toValues(r));
+        // シートをクリア
+        this.retry(() => Sheets.Spreadsheets?.Values?.batchClear({ ranges: [`${this.sheet}!${this.head_col}${this.head_row + 1}:${this.tail_col}${this.tail_row || ''}`] }, this.ssId));
+        if (values.length > 0) {
+            // シートを上書き
+            this.retry(() => Sheets.Spreadsheets?.Values?.append({ values }, this.ssId, `${this.sheet}!${this.head_col}${this.head_row + 1}`, { valueInputOption: 'USER_ENTERED' }));
         }
         // プロパティ更新
         if (options.noloading !== true)
             this.getExistRecords();
-        return { data };
     }
     /** 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加) */
     updateRecords(records, rows) {
