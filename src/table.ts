@@ -162,11 +162,13 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
    * 条件にマッチする先頭のRecordを返す
    * @param target 検索条件(Hash or Row)
    */
-  findRecord(target: THash | TRow) {
+  findRecord(target: THash | TRow | string) {
     if (this.recordMap.size === 0)
       return;
     return this.recordMap.get(
-      Table.isTRow(target) ? target.hash[this.primary_key] : target[this.primary_key]
+      Table.isTRow(target) ? target.hash[this.primary_key] :
+        typeof target === 'string' ? target
+          : target[this.primary_key]
     );
   }
 
