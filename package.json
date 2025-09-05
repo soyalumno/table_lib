@@ -4,8 +4,8 @@
     "build": "./node_modules/.bin/tsc",
     "lint": "./node_modules/.bin/eslint src/*.ts",
     "push": "npm run build && clasp push",
-    "deploy": "npm run push && ./deploy.sh",
-    "watch": "./node_modules/.bin/tsc-watch --onSuccess \"clasp push\""
+    "deploy:prod": "npm run push && ./deploy.sh",
+    "watch": "./node_modules/.bin/tsc-watch --onSuccess \"npm run push\""
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.31",

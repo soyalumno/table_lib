@@ -103,7 +103,9 @@ class Table {
     findRecord(target) {
         if (this.recordMap.size === 0)
             return;
-        return this.recordMap.get(Table.isTRow(target) ? target.hash[this.primary_key] : target[this.primary_key]);
+        return this.recordMap.get(Table.isTRow(target) ? target.hash[this.primary_key] :
+            typeof target === 'string' ? target
+                : target[this.primary_key]);
     }
     /** 指定したキーと一致する先頭のRecordを返す */
     findByKey(key, value) {
