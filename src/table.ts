@@ -212,7 +212,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     const hashes = this.toHash(df);
     const records = hashes.map((hash, i) => {
       const record = this.rowFactory(head, hash, this.head_row + 1 + this.offset + i);
-      this.recordMap.set(hash[this.primary_key], record as TRow);
+      // primary_keyが存在する場合はMapに登録
+      const PK = hash[this.primary_key];
+      if (PK) this.recordMap.set(PK, record as TRow);
       return record;
     });
 
@@ -467,11 +469,10 @@ function buildTable<
   THeader extends iHeader,
   TRow extends iRow,
   THash extends iHash
->(range: string, primary_key: string, options: {
+>(range: string, primary_key?: string, options: {
   ssId?: string,
   noloading?: boolean,
   offset?: number,
 } = {}): Table<THeader, TRow, THash> {
   return new Table<THeader, TRow, THash>(range, primary_key, options);
 }
-

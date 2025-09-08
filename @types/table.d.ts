@@ -278,7 +278,7 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
  */
 declare function buildTable<THeader extends iHeader, TRow extends iRow, THash extends iHash>(
   range: string,
-  primary_key: string,
+  primary_key?: string,
   options?: {
     ssId?: string;
     noloading?: boolean;

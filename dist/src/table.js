@@ -142,7 +142,10 @@ class Table {
         const hashes = this.toHash(df);
         const records = hashes.map((hash, i) => {
             const record = this.rowFactory(head, hash, this.head_row + 1 + this.offset + i);
-            this.recordMap.set(hash[this.primary_key], record);
+            // primary_keyが存在する場合はMapに登録
+            const PK = hash[this.primary_key];
+            if (PK)
+                this.recordMap.set(PK, record);
             return record;
         });
         this.head = head;
