@@ -106,8 +106,8 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   /** 見出し行の変更 */
   migration(head: THeader[]) {
-    // 同じ見出しの場合は何もしない
-    if (head.every((col, i) => col === this.head[i]))
+    // 同じ見出しの場合は何もしない(列数も一致を要求し、先頭部分一致での誤スキップを防ぐ)
+    if (head.length === this.head.length && head.every((col, i) => col === this.head[i]))
       return;
 
     // 見出し行をクリア
@@ -144,7 +144,11 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       v === key && acc.push(i);
       return acc;
     }, [] as number[]);
-    return this.numeric2Colname(this.colname2number(this.head_col) + (indices[nth] ?? 0));
+    const index = indices[nth];
+    // 見出しが見つからない場合に先頭列を黙って返すと、誤った列への書き込み(データ破損)を招くため例外を投げる
+    if (index === undefined)
+      throw new Error(`toCol: 見出し "${key}" がテーブル "${this.range}" に見つかりません (nth=${nth})`);
+    return this.numeric2Colname(this.colname2number(this.head_col) + index);
   }
 
   /** 列名を見出し名に変換する */
@@ -250,8 +254,14 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       this.getExistRecords();
   }
 
-  /** 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加) */
-  updateRecords(records: THash[] | TRow[], rows?: number[]) {
+  /**
+   * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
+   * @param options.noloading true時、書き込み後の再読込(getExistRecords)を行わない。
+   *   再読込をスキップした場合、戻り値の dirty_records は書き込み前の records を元に算出される点に注意。
+   */
+  updateRecords(records: THash[] | TRow[], rows?: number[], options: {
+    noloading?: boolean
+  } = {}) {
     // 上書き範囲の配列を生成
     let next_row = this.lastRow() + 1;
     const dirty_rows: number[] = [];
@@ -288,7 +298,8 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
           data,
         }, this.ssId));
       // プロパティ更新
-      this.getExistRecords();
+      if (options.noloading !== true)
+        this.getExistRecords();
     }
     return {
       dirty_rows,
@@ -302,7 +313,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 
   /** 指定したデータをテーブルの末尾に追記する */
-  appendRecords(records: THash[] | TRow[]) {
+  appendRecords(records: THash[] | TRow[], options: {
+    noloading?: boolean
+  } = {}) {
     // 追記用二次元配列を生成
     const values = records.map((r) => this.toValues(r));
     // シートの末尾に追記
@@ -315,18 +328,23 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
           { valueInputOption: 'USER_ENTERED' }
         ));
       // プロパティ更新
-      this.getExistRecords();
+      if (options.noloading !== true)
+        this.getExistRecords();
     }
   }
 
   /** 指定したレコードを削除 */
-  deleteRecords(records: THash[] | TRow[]) {
+  deleteRecords(records: THash[] | TRow[], options: {
+    noloading?: boolean
+  } = {}) {
     const rows = records
       .map((record) => Table.isTRow(record) ? record.row : this.findRecord(record)?.row)
       .filter((row) => row !== undefined) as number[];
-    this.deleteRecordsFromRow(rows);
+    this.deleteRecordsFromRow(rows, options);
   }
-  deleteRecordsFromRow(rows: number[]) {
+  deleteRecordsFromRow(rows: number[], options: {
+    noloading?: boolean
+  } = {}) {
     const data = rows.map((row): GoogleAppsScript.Sheets.Schema.ValueRange => ({
       range: `${this.sheet}!${this.head_col}${row}`,
       values: [this.head.map(() => '')],
@@ -336,7 +354,8 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         valueInputOption: 'USER_ENTERED',
         data
       }, this.ssId));
-    this.getExistRecords();
+    if (options.noloading !== true)
+      this.getExistRecords();
   }
 
   /** 指定した列でデータを並び替え */
@@ -346,6 +365,18 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     rng?.getFilter()?.remove();
     rng?.createFilter().sort(this.head.indexOf(column) + this.colname2number(this.head_col), ascending);
   }
+
+  /** 指定したコールバック関数でグルーピング */
+  groupBy(cb: (hash: THash) => string, hashes?: THash[]) {
+    const newMap = new Map<string, THash[]>();
+    (hashes || this.hashes).forEach((hash) => {
+      const val = cb(hash);
+      if (!val) return; // 空文字列は無視
+      if (!newMap.has(val)) newMap.set(val, []);
+      newMap.get(val)?.push(hash);
+    });
+    return newMap;
+  };
 
   // シートのグリッドサイズを変更(縮小は不可)
   resize(rows: number, columns: number) {

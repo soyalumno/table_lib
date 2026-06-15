@@ -164,11 +164,15 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
    * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
    * @param records レコード配列
    * @param rows 行番号配列
+   * @param options.noloading true時、書き込み後の再読込を行わない(dirty_recordsは書き込み前のrecordsを元に算出)
    * @returns 更新結果
    */
   updateRecords(
     records: THash[] | TRow[],
-    rows?: number[]
+    rows?: number[],
+    options?: {
+      noloading?: boolean;
+    }
   ): {
     dirty_rows: number[];
     dirty_records: TRow[];
@@ -182,20 +186,38 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   /**
    * 指定したデータをテーブルの末尾に追記する
    * @param records レコード配列
+   * @param options.noloading true時、書き込み後の再読込を行わない
    */
-  appendRecords(records: THash[] | TRow[]): void;
+  appendRecords(
+    records: THash[] | TRow[],
+    options?: {
+      noloading?: boolean;
+    }
+  ): void;
 
   /**
    * 指定したレコードを削除
    * @param records レコード配列
+   * @param options.noloading true時、書き込み後の再読込を行わない
    */
-  deleteRecords(records: THash[] | TRow[]): void;
+  deleteRecords(
+    records: THash[] | TRow[],
+    options?: {
+      noloading?: boolean;
+    }
+  ): void;
 
   /**
    * 指定した行のレコードを削除
    * @param rows 行番号配列
+   * @param options.noloading true時、書き込み後の再読込を行わない
    */
-  deleteRecordsFromRow(rows: number[]): void;
+  deleteRecordsFromRow(
+    rows: number[],
+    options?: {
+      noloading?: boolean;
+    }
+  ): void;
 
   /**
    * 指定した列でデータを並び替え

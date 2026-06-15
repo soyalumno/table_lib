@@ -60,8 +60,8 @@ class Table {
     }
     /** 見出し行の変更 */
     migration(head) {
-        // 同じ見出しの場合は何もしない
-        if (head.every((col, i) => col === this.head[i]))
+        // 同じ見出しの場合は何もしない(列数も一致を要求し、先頭部分一致での誤スキップを防ぐ)
+        if (head.length === this.head.length && head.every((col, i) => col === this.head[i]))
             return;
         // 見出し行をクリア
         this.retry(() => Sheets.Spreadsheets?.Values?.batchClear({ ranges: [`${this.sheet}!${this.head_col}${this.head_row}:${this.tail_col}${this.head_row}`] }, this.ssId));
@@ -85,7 +85,11 @@ class Table {
             v === key && acc.push(i);
             return acc;
         }, []);
-        return this.numeric2Colname(this.colname2number(this.head_col) + (indices[nth] ?? 0));
+        const index = indices[nth];
+        // 見出しが見つからない場合に先頭列を黙って返すと、誤った列への書き込み(データ破損)を招くため例外を投げる
+        if (index === undefined)
+            throw new Error(`toCol: 見出し "${key}" がテーブル "${this.range}" に見つかりません (nth=${nth})`);
+        return this.numeric2Colname(this.colname2number(this.head_col) + index);
     }
     /** 列名を見出し名に変換する */
     toKey(col) {
@@ -166,8 +170,12 @@ class Table {
         if (options.noloading !== true)
             this.getExistRecords();
     }
-    /** 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加) */
-    updateRecords(records, rows) {
+    /**
+     * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
+     * @param options.noloading true時、書き込み後の再読込(getExistRecords)を行わない。
+     *   再読込をスキップした場合、戻り値の dirty_records は書き込み前の records を元に算出される点に注意。
+     */
+    updateRecords(records, rows, options = {}) {
         // 上書き範囲の配列を生成
         let next_row = this.lastRow() + 1;
         const dirty_rows = [];
@@ -200,7 +208,8 @@ class Table {
                 data,
             }, this.ssId));
             // プロパティ更新
-            this.getExistRecords();
+            if (options.noloading !== true)
+                this.getExistRecords();
         }
         return {
             dirty_rows,
@@ -212,24 +221,25 @@ class Table {
         this.updateRecords(this.records);
     }
     /** 指定したデータをテーブルの末尾に追記する */
-    appendRecords(records) {
+    appendRecords(records, options = {}) {
         // 追記用二次元配列を生成
         const values = records.map((r) => this.toValues(r));
         // シートの末尾に追記
         if (values.length > 0) {
             this.retry(() => Sheets.Spreadsheets?.Values?.append({ values }, this.ssId, `${this.sheet}!${this.head_col}${this.lastRow() + 1}`, { valueInputOption: 'USER_ENTERED' }));
             // プロパティ更新
-            this.getExistRecords();
+            if (options.noloading !== true)
+                this.getExistRecords();
         }
     }
     /** 指定したレコードを削除 */
-    deleteRecords(records) {
+    deleteRecords(records, options = {}) {
         const rows = records
             .map((record) => Table.isTRow(record) ? record.row : this.findRecord(record)?.row)
             .filter((row) => row !== undefined);
-        this.deleteRecordsFromRow(rows);
+        this.deleteRecordsFromRow(rows, options);
     }
-    deleteRecordsFromRow(rows) {
+    deleteRecordsFromRow(rows, options = {}) {
         const data = rows.map((row) => ({
             range: `${this.sheet}!${this.head_col}${row}`,
             values: [this.head.map(() => '')],
@@ -238,7 +248,8 @@ class Table {
             valueInputOption: 'USER_ENTERED',
             data
         }, this.ssId));
-        this.getExistRecords();
+        if (options.noloading !== true)
+            this.getExistRecords();
     }
     /** 指定した列でデータを並び替え */
     sortRecords(column, ascending = true) {
@@ -247,6 +258,20 @@ class Table {
         rng?.getFilter()?.remove();
         rng?.createFilter().sort(this.head.indexOf(column) + this.colname2number(this.head_col), ascending);
     }
+    /** 指定したコールバック関数でグルーピング */
+    groupBy(cb, hashes) {
+        const newMap = new Map();
+        (hashes || this.hashes).forEach((hash) => {
+            const val = cb(hash);
+            if (!val)
+                return; // 空文字列は無視
+            if (!newMap.has(val))
+                newMap.set(val, []);
+            newMap.get(val)?.push(hash);
+        });
+        return newMap;
+    }
+    ;
     // シートのグリッドサイズを変更(縮小は不可)
     resize(rows, columns) {
         const s = this.ss.getSheetByName(this.sheet);

@@ -160,21 +160,25 @@ constructor(
 #### `resetTable(records: THash[] | TRow[], options = { noloading?: boolean })`
 指定したデータでテーブルを再作成します。既存データは削除されます。
 
-#### `updateRecords(records: THash[] | TRow[], rows?: number[])`
+#### `updateRecords(records: THash[] | TRow[], rows?: number[], options = { noloading?: boolean })`
 指定したデータでシートを上書きします。一致するデータが無ければ末尾に追加します。
 - `rows`: 書き込み先の行番号を指定できます
+- `options.noloading`: `true`で書き込み後の再読込（`getExistRecords`）を省略しAPIコールを削減します。再読込を省略した場合、戻り値の`dirty_records`は書き込み前の`records`を元に算出される点に注意してください
 
 #### `save()`
 `records`の内容をシートに反映します。
 
-#### `appendRecords(records: THash[] | TRow[])`
+#### `appendRecords(records: THash[] | TRow[], options = { noloading?: boolean })`
 指定したデータをテーブルの末尾に追記します。
+- `options.noloading`: `true`で書き込み後の再読込を省略します
 
-#### `deleteRecords(records: THash[] | TRow[])`
+#### `deleteRecords(records: THash[] | TRow[], options = { noloading?: boolean })`
 指定したレコードを削除します（行を空白にします）。
+- `options.noloading`: `true`で書き込み後の再読込を省略します
 
-#### `deleteRecordsFromRow(rows: number[])`
+#### `deleteRecordsFromRow(rows: number[], options = { noloading?: boolean })`
 指定した行番号のレコードを削除します。
+- `options.noloading`: `true`で書き込み後の再読込を省略します
 
 #### `sortRecords(column: THeader, ascending = true)`
 指定した列でデータを並び替えます。
@@ -204,6 +208,7 @@ constructor(
 #### `toCol(key: THeader, nth = 0)`
 見出し名を列名（例: 'A'）に変換します。
 - `nth`: 同名の列が複数ある場合、何番目の列を取得するか
+- 指定した見出しがテーブルに存在しない場合は例外を投げます（誤った列への書き込みによるデータ破損を防ぐため）
 
 #### `toKey(col: string)`
 列名（例: 'A'）を見出し名に変換します。
