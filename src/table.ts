@@ -36,6 +36,10 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   private recordMap: Map<string, TRow> = new Map();
 
+  /** グリッドサイズのキャッシュ(resizeでのSpreadsheetApp読み取り回数を削減) */
+  private _maxRows?: number;
+  private _maxCols?: number;
+
   /** 変換オプション */
   toHashOption?: {
     useFirstColumn: boolean, /** 同名の列がある場合、先頭の列を優先 */
@@ -92,9 +96,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         this.ssId,
       ));
 
-    // シートを上書き
+    // 見出し行を上書き(append はテーブルを自動検出して末尾に追記するため、既存ヘッダー/データの配置で書き込み行がずれる。書き込み先が確定しているので update を使う)
     this.retry(() =>
-      Sheets.Spreadsheets?.Values?.append(
+      Sheets.Spreadsheets?.Values?.update(
         { values: [head] },
         this.ssId,
         `${this.sheet}!${this.head_col}${this.head_row}`,
@@ -116,9 +120,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         { ranges: [`${this.sheet}!${this.head_col}${this.head_row}:${this.tail_col}${this.head_row}`] },
         this.ssId,
       ));
-    // シートを上書き
+    // 見出し行を上書き(append はテーブルを自動検出して末尾に追記するため、既存ヘッダー/データの配置で書き込み行がずれる。書き込み先が確定しているので update を使う)
     this.retry(() =>
-      Sheets.Spreadsheets?.Values?.append(
+      Sheets.Spreadsheets?.Values?.update(
         { values: [head] },
         this.ssId,
         `${this.sheet}!${this.head_col}${this.head_row}`,
@@ -218,7 +222,12 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       const record = this.rowFactory(head, hash, this.head_row + 1 + this.offset + i);
       // primary_keyが存在する場合はMapに登録
       const PK = hash[this.primary_key];
-      if (PK) this.recordMap.set(PK, record as TRow);
+      if (PK) {
+        // 重複主キーは後勝ちで上書きされ、findRecordが最後の行を返すため警告する
+        if (this.recordMap.has(PK))
+          console.warn(`Table: 主キー "${PK}" が重複しています (テーブル: ${this.range})。findRecordは最後の行を返します`);
+        this.recordMap.set(PK, record as TRow);
+      }
       return record;
     });
 
@@ -287,8 +296,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     });
 
     if (data.length > 0) {
-      // flush the data
-      SpreadsheetApp.flush();
+      // 必要に応じてグリッドを拡張(flushとサイズ読み取りはresize内で必要なときだけ実行)
       this.resize(Math.max(...dirty_rows), this.colname2number(this.head_col) + this.head.length - 1);
 
       // シートを上書き
@@ -380,13 +388,25 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   // シートのグリッドサイズを変更(縮小は不可)
   resize(rows: number, columns: number) {
+    // キャッシュ済みサイズで足りる場合はSpreadsheetApp(flush/getMax)へアクセスしない
+    if (this._maxRows !== undefined && this._maxCols !== undefined
+      && this._maxRows >= rows && this._maxCols >= columns)
+      return;
+    // グリッドサイズを読む前に保留中の書き込みを反映
+    SpreadsheetApp.flush();
     const s = this.ss.getSheetByName(this.sheet);
     if (!s)
       return;
-    const maxrow = s.getMaxRows() || 1;
-    const maxcol = s.getMaxColumns() || 1;
-    (maxcol < columns) && (s.insertColumnsAfter(maxcol, columns - maxcol));
-    (maxrow < rows) && (s.insertRowsAfter(maxrow, rows - maxrow));
+    this._maxRows = s.getMaxRows() || 1;
+    this._maxCols = s.getMaxColumns() || 1;
+    if (this._maxCols < columns) {
+      s.insertColumnsAfter(this._maxCols, columns - this._maxCols);
+      this._maxCols = columns;
+    }
+    if (this._maxRows < rows) {
+      s.insertRowsAfter(this._maxRows, rows - this._maxRows);
+      this._maxRows = rows;
+    }
   }
 
   /** アルファベットを列番号に変換 */
