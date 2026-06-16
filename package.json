@@ -1,6 +1,7 @@
 {
   "name": "dev_template",
   "scripts": {
+    "test": "vitest run",
     "build": "./node_modules/.bin/tsc",
     "lint": "./node_modules/.bin/eslint src/*.ts",
     "push": "npm run build && clasp push",
@@ -16,6 +17,7 @@
     "eslint": "^8.2.0",
     "ncp": "^2.0.0",
     "tsc-watch": "^4.6.2",
-    "typescript": "^5.x.x"
+    "typescript": "^5.x.x",
+    "vitest": "^4.1.8"
   }
 }
