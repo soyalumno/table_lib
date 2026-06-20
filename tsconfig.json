@@ -6,9 +6,12 @@
     "outDir": "./dist/src",
     "noEmitOnError": true,
     "strict": true,
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "skipLibCheck": true
   },
   "exclude": [
-    "@types/table.d.ts"
+    "@types/table.d.ts",
+    "tests",
+    "vitest.config.ts"
   ]
 }

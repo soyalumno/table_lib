@@ -176,8 +176,12 @@ class Table {
     }
     /**
      * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
-     * @param options.noloading true時、書き込み後の再読込(getExistRecords)を行わない。
-     *   再読込をスキップした場合、戻り値の dirty_records は書き込み前の records を元に算出される点に注意。
+     * @param options.postWrite 書き込み後のメモリ更新方式
+     *   - 'reload' (デフォルト): getExistRecords() でシート全行を再読込
+     *   - 'sync': applyDirtyRecords() で書き込んだ内容だけメモリにマージ (APIコール0回)
+     *     recordMapが空の場合は 'reload' にフォールバック
+     *     数式セルの計算結果は反映されない点に注意
+     *   - 'skip': 何もしない (メモリは stale のまま)
      */
     updateRecords(records, rows, options = {}) {
         // 上書き範囲の配列を生成
@@ -210,14 +214,53 @@ class Table {
                 valueInputOption: 'USER_ENTERED',
                 data,
             }, this.ssId));
-            // プロパティ更新
-            if (options.noloading !== true)
+            // メモリ更新
+            const postWrite = options.postWrite || 'reload';
+            if (postWrite === 'sync') {
+                if (this.recordMap.size === 0) {
+                    this.getExistRecords();
+                }
+                else {
+                    this.applyDirtyRecords(records, dirty_rows);
+                }
+            }
+            else if (postWrite === 'reload') {
                 this.getExistRecords();
+            }
+            // 'skip' → 何もしない
         }
         return {
             dirty_rows,
             dirty_records: this.records.filter((r) => dirty_rows.includes(r.row)),
         };
+    }
+    /**
+     * 書き込み済みデータをメモリ上のレコードにマージする (API再読込なし)
+     * - 既存レコード (primary_key一致): hash を部分マージ
+     * - 新規レコード: 全カラムを空文字で初期化した上で hash をマージし、records/hashes/recordMap に追加
+     */
+    applyDirtyRecords(inputRecords, dirty_rows) {
+        inputRecords.forEach((r, i) => {
+            const inputHash = Table.isTRow(r) ? r.hash : r;
+            const row = dirty_rows[i];
+            const pk = inputHash[this.primary_key];
+            const existing = pk ? this.recordMap.get(pk) : undefined;
+            if (existing) {
+                // UPDATE: 既存レコードのハッシュに部分マージ
+                Object.assign(existing.hash, inputHash);
+            }
+            else {
+                // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
+                const fullHash = {};
+                this.head.forEach((k) => { fullHash[k] = ''; });
+                Object.assign(fullHash, inputHash);
+                const newRecord = this.rowFactory(this.head, fullHash, row);
+                this.records.push(newRecord);
+                this.hashes.push(fullHash);
+                if (pk)
+                    this.recordMap.set(pk, newRecord);
+            }
+        });
     }
     /** recordsの内容をシートに反映 */
     save() {

@@ -164,14 +164,17 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
    * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
    * @param records レコード配列
    * @param rows 行番号配列
-   * @param options.noloading true時、書き込み後の再読込を行わない(dirty_recordsは書き込み前のrecordsを元に算出)
+   * @param options.postWrite 書き込み後のメモリ更新方式
+   *   - 'reload' (デフォルト): getExistRecords() でシート全行を再読込
+   *   - 'sync': 書き込んだ内容だけメモリにマージ (APIコール0回、recordMap空時は reload にフォールバック)
+   *   - 'skip': 何もしない (メモリは stale のまま)
    * @returns 更新結果
    */
   updateRecords(
     records: THash[] | TRow[],
     rows?: number[],
     options?: {
-      noloading?: boolean;
+      postWrite?: 'reload' | 'sync' | 'skip';
     }
   ): {
     dirty_rows: number[];
