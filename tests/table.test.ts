@@ -513,3 +513,59 @@ describe('重複主キー警告', () => {
     ;(globalThis as any).Sheets.Spreadsheets.Values.batchGet = () => ({ valueRanges: [] })
   })
 })
+
+// ============================================================
+// applyDirtyRecords ファントムレコード防止 (T2)
+// ============================================================
+describe('applyDirtyRecords ファントムレコード防止 (T2)', () => {
+  it('sync+rows+PKなし最小hashで既存行への部分マージになり、ファントムが増えない', () => {
+    const tbl = setupTable('Sheet1!A1:C100', 'ID', ['ID', 'name', 'note'], [
+      { ID: '1', name: 'Alice', note: 'orig' },
+    ])
+    const row = tbl.records[0].row
+    const before = tbl.records.length
+
+    tbl.updateRecords([{ note: 'updated' }], [row], { postWrite: 'sync' })
+
+    // ファントムレコードが追加されていない
+    expect(tbl.records.length).toBe(before)
+    // 既存レコードのハッシュに部分マージされている
+    expect(tbl.records[0].hash).toEqual({ ID: '1', name: 'Alice', note: 'updated' })
+  })
+})
+
+// ============================================================
+// toValues 重複見出し (T4: 先頭列のみ書き込み)
+// ============================================================
+describe('重複見出しへの書き込み (T4)', () => {
+  it('updateRecords経由で重複見出しの2列目以降はundefinedで送信される(先頭列のみ書き込み)', () => {
+    const tbl = setupTable('Sheet1!A1:C100', 'v1', ['v1', 'dup', 'dup'], [
+      { v1: '1', dup: 'orig' },
+    ])
+    const batchUpdateSpy = vi.fn(() => ({}))
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = batchUpdateSpy
+
+    tbl.updateRecords([{ v1: '1', dup: 'updated' }], [tbl.records[0].row], { postWrite: 'skip' })
+
+    const sentValues = batchUpdateSpy.mock.calls[0][0].data[0].values[0]
+    expect(sentValues).toEqual(['1', 'updated', undefined])
+
+    // batchUpdate を元に戻す
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = () => ({})
+  })
+})
+
+// ============================================================
+// updateRecords rows件数不一致 (T6)
+// ============================================================
+describe('updateRecords rows件数不一致 (T6)', () => {
+  it('rowsとrecordsの件数が不一致なら例外を投げる', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ])
+    expect(() => tbl.updateRecords(
+      [{ ID: '1', name: 'x' }, { ID: '2', name: 'y' }],
+      [2],
+    )).toThrowError(/updateRecords:.*rows.*1.*records.*2/)
+  })
+})
