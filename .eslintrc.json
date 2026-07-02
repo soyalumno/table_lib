@@ -16,7 +16,7 @@
   "rules": {
     "semi": "error",
     "indent": [
-      "warning",
+      "warn",
       2
     ],
     "quotes": [
