@@ -1,5 +1,6 @@
 {
   "name": "dev_template",
+  "version": "0.14.0",
   "scripts": {
     "test": "vitest run",
     "build": "./node_modules/.bin/tsc",
