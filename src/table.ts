@@ -249,12 +249,15 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         this.ssId,
       ));
     if (values.length > 0) {
+      const start_row = this.head_row + 1;
+      // 必要に応じてグリッドを拡張(append はテーブルを自動検出して末尾に追記するため、既存ヘッダー/データの配置で書き込み行がずれる。書き込み先が確定しているので update を使う)
+      this.resize(start_row + values.length - 1, this.colname2number(this.head_col) + (this.head.length || values[0].length) - 1);
       // シートを上書き
       this.retry(() =>
-        Sheets.Spreadsheets?.Values?.append(
+        Sheets.Spreadsheets?.Values?.update(
           { values },
           this.ssId,
-          `${this.sheet}!${this.head_col}${this.head_row + 1}`,
+          `${this.sheet}!${this.head_col}${start_row}`,
           { valueInputOption: 'USER_ENTERED' }
         ));
     }
@@ -275,6 +278,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   updateRecords(records: THash[] | TRow[], rows?: number[], options: {
     postWrite?: 'reload' | 'sync' | 'skip'
   } = {}) {
+    // rowsの件数がrecordsと不一致だと、対応関係がずれた行に黙って書き込まれデータ誤配置を招くため例外を投げる
+    if (rows && rows.length !== records.length)
+      throw new Error(`updateRecords: rows の件数(${rows.length})と records の件数(${records.length})が一致しません`);
     // 上書き範囲の配列を生成
     let next_row = this.lastRow() + 1;
     const dirty_rows: number[] = [];
@@ -348,14 +354,21 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         // UPDATE: 既存レコードのハッシュに部分マージ
         Object.assign(existing.hash, inputHash);
       } else {
-        // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
-        const fullHash = {} as THash;
-        this.head.forEach((k) => { (fullHash as iHash)[k] = ''; });
-        Object.assign(fullHash, inputHash);
-        const newRecord = this.rowFactory(this.head, fullHash, row);
-        this.records.push(newRecord as TRow);
-        this.hashes.push(fullHash);
-        if (pk) this.recordMap.set(pk, newRecord as TRow);
+        // 主キー無しでも、同じ行のレコードが既にあれば部分マージ(ファントム追加による後続saveでのデータ消失を防ぐ)
+        const atRow = this.records.find((rec) => rec.row === row);
+        if (atRow) {
+          Object.assign(atRow.hash, inputHash);
+          if (pk) this.recordMap.set(pk, atRow as TRow);
+        } else {
+          // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
+          const fullHash = {} as THash;
+          this.head.forEach((k) => { (fullHash as iHash)[k] = ''; });
+          Object.assign(fullHash, inputHash);
+          const newRecord = this.rowFactory(this.head, fullHash, row);
+          this.records.push(newRecord as TRow);
+          this.hashes.push(fullHash);
+          if (pk) this.recordMap.set(pk, newRecord as TRow);
+        }
       }
     });
   }
@@ -373,11 +386,14 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     const values = records.map((r) => this.toValues(r));
     // シートの末尾に追記
     if (values.length > 0) {
+      const start_row = this.lastRow() + 1;
+      // 必要に応じてグリッドを拡張(append はテーブルを自動検出して末尾に追記するため、既存ヘッダー/データの配置で書き込み行がずれる。書き込み先が確定しているので update を使う)
+      this.resize(start_row + values.length - 1, this.colname2number(this.head_col) + this.head.length - 1);
       this.retry(() =>
-        Sheets.Spreadsheets?.Values?.append(
+        Sheets.Spreadsheets?.Values?.update(
           { values },
           this.ssId,
-          `${this.sheet}!${this.head_col}${this.lastRow() + 1}`,
+          `${this.sheet}!${this.head_col}${start_row}`,
           { valueInputOption: 'USER_ENTERED' }
         ));
       // プロパティ更新
@@ -413,10 +429,14 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   /** 指定した列でデータを並び替え */
   sortRecords(column: THeader, ascending = true) {
+    const index = this.head.indexOf(column);
+    // 見出しが見つからない場合に-1のまま計算すると誤った列でソートされるため例外を投げる(toColと同様のスタイル)
+    if (index === -1)
+      throw new Error(`sortRecords: 見出し "${column}" がテーブル "${this.range}" に見つかりません`);
     const s = this.ss.getSheetByName(this.sheet);
     const rng = s?.getRange(this.range);
     rng?.getFilter()?.remove();
-    rng?.createFilter().sort(this.head.indexOf(column) + this.colname2number(this.head_col), ascending);
+    rng?.createFilter().sort(index + this.colname2number(this.head_col), ascending);
   }
 
   /** 指定したコールバック関数でグルーピング */
@@ -516,7 +536,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   getValues(range: string): any[][] {
     return this.ss.getRange(`${this.sheet}!${range}`).getValues();
   }
-  /** Range.setValueのラッパー */
+  /** Range.getValueのラッパー */
   getValue(range: string): any {
     return this.ss.getRange(`${this.sheet}!${range}`).getValues().flat()[0];
   }
@@ -540,7 +560,16 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   private toValues(record: THash | TRow) {
     const hash = Table.isTRow(record) ? record.hash : record;
-    return this.head.map((col) => hash[col] === 'NaN' ? undefined : hash[col]);
+    // 同名見出しが複数ある場合、読み取り側(toHash)は useFirstColumn=true がデフォルトで先頭列の値を優先する。
+    // 書き込み側で全列に同じ値を書くと非対称になり、2列目以降が意図せず上書きされるため、
+    // 2回目以降の同名列には undefined を返す(Sheets APIはundefinedのセルを既存値のまま保持する)
+    const seen = new Set<THeader>();
+    return this.head.map((col) => {
+      if (seen.has(col))
+        return undefined;
+      seen.add(col);
+      return hash[col] === 'NaN' ? undefined : hash[col];
+    });
   }
 
   /** 二次元のテーブルデータを見出しをキーとしたオブジェクト配列に変換する */
