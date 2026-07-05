@@ -1,4 +1,6 @@
 // ジェネリクスのインタフェース
+/** セル値の型（テンプレート側では on_edit.d.ts で定義） */
+type CellValue = (string | number | boolean | Date);
 /** テーブルの見出し定義 */
 type iHeader = string;
 /** 見出しをキーとしたオブジェクト定義 */

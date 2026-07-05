@@ -160,10 +160,23 @@ constructor(
 #### `resetTable(records: THash[] | TRow[], options = { noloading?: boolean })`
 指定したデータでテーブルを再作成します。既存データは削除されます。
 
-#### `updateRecords(records: THash[] | TRow[], rows?: number[], options = { noloading?: boolean })`
+#### `updateRecords(records: THash[] | TRow[], rows?: number[], options = { postWrite?: 'reload' | 'sync' | 'skip' })`
 指定したデータでシートを上書きします。一致するデータが無ければ末尾に追加します。
 - `rows`: 書き込み先の行番号を指定できます
-- `options.noloading`: `true`で書き込み後の再読込（`getExistRecords`）を省略しAPIコールを削減します。再読込を省略した場合、戻り値の`dirty_records`は書き込み前の`records`を元に算出される点に注意してください
+- `options.postWrite`: 書き込み後のメモリ更新方式
+    - `'reload'`（デフォルト）: `getExistRecords()`でシート全行を再読込します
+    - `'sync'`: 書き込んだ内容だけをメモリ上のレコードにマージします（APIコール0回）。内部インデックス（recordMap）が空の場合は`'reload'`にフォールバックします。数式セルの計算結果はメモリに反映されない点に注意してください
+    - `'skip'`: 何もしません（メモリはstaleのまま）
+
+##### 部分ハッシュによる特定列だけの更新
+
+hashに含まれない列は`undefined`として送信され、Sheets APIは該当セルを既存値のまま保持します（上書きされません）。特定の列だけを更新したい場合は、`{列: 値}`の最小ハッシュと`rows`（書き込み先の行番号）を渡します。
+なお、値に文字列`'NaN'`を渡した場合も`undefined`に変換されるため、そのセルは既存値のまま保持されます。
+
+```javascript
+// 3行目の「note」列だけを更新（ID・name等の他列は既存値を保持）
+tbl.updateRecords([{ note: '更新メモ' }], [3]);
+```
 
 #### `save()`
 `records`の内容をシートに反映します。

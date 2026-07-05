@@ -69,7 +69,7 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   /**
    * Type Guard
    */
-  static isTRow<TRow extends iRow>(value: any): value is TRow;
+  static isTRow<TRow extends iRow>(value: unknown): value is TRow;
 
   /**
    * Tableクラスコンストラクタ
@@ -129,10 +129,10 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
 
   /**
    * 条件にマッチする先頭のRecordを返す
-   * @param target 検索条件(Hash or Row)
+   * @param target 検索条件(Hash or Row or 主キー文字列)
    * @returns マッチするレコード
    */
-  findRecord(target: THash | TRow): TRow | undefined;
+  findRecord(target: THash | TRow | string): TRow | undefined;
 
   /**
    * 指定したキーと一致する先頭のRecordを返す
@@ -162,11 +162,17 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
 
   /**
    * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
+   *
+   * hash に含まれない列は undefined として送信され、Sheets API は該当セルを既存値のまま保持する(上書きされない)。
+   * 特定の列だけ更新するには `{列: 値}` の最小ハッシュ + rows(書き込み先の行番号)を渡す。
+   * 例: `tbl.updateRecords([{ note: '更新' }], [3])` → 3行目の note 列のみ更新
+   * なお値に文字列 'NaN' を渡した場合も undefined に変換され、該当セルは既存値のまま保持される。
+   *
    * @param records レコード配列
    * @param rows 行番号配列
    * @param options.postWrite 書き込み後のメモリ更新方式
    *   - 'reload' (デフォルト): getExistRecords() でシート全行を再読込
-   *   - 'sync': 書き込んだ内容だけメモリにマージ (APIコール0回、recordMap空時は reload にフォールバック)
+   *   - 'sync': 書き込んだ内容だけメモリにマージ (APIコール0回、recordMap空時は reload にフォールバック、数式セルの計算結果は反映されない)
    *   - 'skip': 何もしない (メモリは stale のまま)
    * @returns 更新結果
    */
@@ -257,12 +263,12 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
    * @returns コールバック関数の戻り値
    */
   retry<T>(
-    callback: (...args: any[]) => T,
+    callback: (...args: never[]) => T,
     options?: {
       maxRetries?: number;
       delay?: number;
       backoffFactor?: number;
-      retryableErrors?: (new (...args: any[]) => Error)[];
+      retryableErrors?: (new (...args: never[]) => Error)[];
     }
   ): T;
 
@@ -271,28 +277,28 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
    * @param range 範囲
    * @returns 値の二次元配列
    */
-  getValues(range: string): any[][];
+  getValues(range: string): CellValue[][];
 
   /**
    * Range.getValueのラッパー
    * @param range 範囲
    * @returns 単一の値
    */
-  getValue(range: string): any;
+  getValue(range: string): CellValue;
 
   /**
    * Range.setValuesのラッパー
    * @param range 範囲
    * @param values 値の二次元配列
    */
-  setValues(range: string, values: string[][]): void;
+  setValues(range: string, values: CellValue[][]): void;
 
   /**
    * Range.setValueのラッパー
    * @param range 範囲
    * @param value 値
    */
-  setValue(range: string, value: any): void;
+  setValue(range: string, value: CellValue): void;
 }
 
 /**

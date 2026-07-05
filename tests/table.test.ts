@@ -556,6 +556,27 @@ describe('重複見出しへの書き込み (T4)', () => {
 })
 
 // ============================================================
+// 部分ハッシュ更新 (T7: hashに無い列はundefined送信で既存値保持)
+// ============================================================
+describe('部分ハッシュ更新 (T7)', () => {
+  it('updateRecords経由でhashにキーの無い列はundefinedで送信される(既存値保持)', () => {
+    const tbl = setupTable('Sheet1!A1:C100', 'v1', ['v1', 'v2', 'v3'], [
+      { v1: '1', v2: 'orig2', v3: 'orig3' },
+    ])
+    const batchUpdateSpy = vi.fn(() => ({}))
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = batchUpdateSpy
+
+    tbl.updateRecords([{ v1: '1' }], [tbl.records[0].row], { postWrite: 'skip' })
+
+    const sentValues = batchUpdateSpy.mock.calls[0][0].data[0].values[0]
+    expect(sentValues).toEqual(['1', undefined, undefined])
+
+    // batchUpdate を元に戻す
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = () => ({})
+  })
+})
+
+// ============================================================
 // updateRecords rows件数不一致 (T6)
 // ============================================================
 describe('updateRecords rows件数不一致 (T6)', () => {
