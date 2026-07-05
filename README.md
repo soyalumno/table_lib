@@ -28,6 +28,19 @@ https://user-images.githubusercontent.com/33917383/236586101-5f837378-581f-4e76-
 
 ![screenshot-2023-05-06-192611](https://user-images.githubusercontent.com/33917383/236618671-d457a9cd-4d78-42eb-bdd2-02d0d1f6ab67.png)
 
+### 📌バージョン対応
+
+利用側は `clasp` のライブラリバージョン番号（整数）でpinして参照しています。`npx clasp versions` で確認できるデプロイ済みバージョンと、リポジトリ側の変更内容の対応です（説明文・git履歴から対応が特定できる行のみ記載）。
+
+| デプロイ版(clasp version) | 対応コミット | 主な変更点 |
+|---|---|---|
+| 14（最新） | `cf5cdb6` | applyDirtyRecords追加（updateRecordsのnoloading時メモリマージ） |
+| 1〜13 | 対応不明（今後deploy時に記入） | clasp versions側に説明文が無く特定不可 |
+
+- clasp version 14 の説明文「applyDirtyRecords (noloading時メモリマージ)」と、コミット `cf5cdb6`（`feat: updateRecords に noloading 時のメモリマージ (applyDirtyRecords) を追加`）のメッセージが一致することを確認して記載しています
+- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.14.2`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更（eslintrc修正・append安全性強化等）を含みます
+- **運用注記**: 今後ライブラリを新規デプロイした際は、この表へ「デプロイ版番号 = package.jsonバージョン（コミットハッシュ）: 変更概要」の形式で1行追記してください
+
 ### Tableインスタンスの生成
 
 テーブル範囲、主キーを指定してTableインスタンスを生成可能です
@@ -195,6 +208,9 @@ tbl.updateRecords([{ note: '更新メモ' }], [3]);
 
 #### `sortRecords(column: THeader, ascending = true)`
 指定した列でデータを並び替えます。
+
+#### `groupBy(cb: (hash: THash) => string, hashes?: THash[]): Map<string, THash[]>`
+コールバック関数が返すキーでレコードをグルーピングします（`hashes`省略時は`this.hashes`が対象）。コールバックが空文字列を返したレコードは結果から除外されます。
 
 ### データ取得・検索
 

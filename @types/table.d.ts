@@ -236,6 +236,14 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   sortRecords(column: THeader, ascending?: boolean): void;
 
   /**
+   * 指定したコールバック関数でグルーピング
+   * @param cb グルーピングキーを返すコールバック関数(空文字列を返した場合、そのレコードは結果から除外される)
+   * @param hashes グルーピング対象のハッシュ配列(省略時は`this.hashes`)
+   * @returns グルーピングキーをキーとしたレコード配列のMap
+   */
+  groupBy(cb: (hash: THash) => string, hashes?: THash[]): Map<string, THash[]>;
+
+  /**
    * シートのグリッドサイズを変更(縮小は不可)
    * @param rows 行数
    * @param columns 列数
