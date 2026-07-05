@@ -1,4 +1,4 @@
-/** gas_table_lib v0.14.2 */
+/** gas_table_lib v0.14.3 */
 /** 指定した範囲のテーブルを読み書きするための抽象クラス */
 class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 見出し行番号 */

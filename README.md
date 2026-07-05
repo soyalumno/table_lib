@@ -38,7 +38,7 @@ https://user-images.githubusercontent.com/33917383/236586101-5f837378-581f-4e76-
 | 1〜13 | 対応不明（今後deploy時に記入） | clasp versions側に説明文が無く特定不可 |
 
 - clasp version 14 の説明文「applyDirtyRecords (noloading時メモリマージ)」と、コミット `cf5cdb6`（`feat: updateRecords に noloading 時のメモリマージ (applyDirtyRecords) を追加`）のメッセージが一致することを確認して記載しています
-- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.14.2`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更（eslintrc修正・append安全性強化等）を含みます
+- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.14.3`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更（eslintrc修正・append安全性強化等）を含みます
 - **運用注記**: 今後ライブラリを新規デプロイした際は、この表へ「デプロイ版番号 = package.jsonバージョン（コミットハッシュ）: 変更概要」の形式で1行追記してください
 
 ### Tableインスタンスの生成

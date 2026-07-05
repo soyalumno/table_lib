@@ -1,4 +1,4 @@
-#!/usr/local/bin/bash
+#!/usr/bin/env bash
 # 最新のデプロイIDを取得
 LATEST=$(clasp deployments | tail -1)
 ID=$(echo "$LATEST" | awk '{print $2}')
