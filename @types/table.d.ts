@@ -156,6 +156,8 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   resetTable(
     records: THash[] | TRow[],
     options?: {
+      postWrite?: 'reload' | 'sync' | 'skip';
+      /** @deprecated postWrite を使う */
       noloading?: boolean;
     }
   ): void;
@@ -181,6 +183,8 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
     rows?: number[],
     options?: {
       postWrite?: 'reload' | 'sync' | 'skip';
+      /** @deprecated postWrite を使う */
+      noloading?: boolean;
     }
   ): {
     dirty_rows: number[];
@@ -195,11 +199,14 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   /**
    * 指定したデータをテーブルの末尾に追記する
    * @param records レコード配列
-   * @param options.noloading true時、書き込み後の再読込を行わない
+   * @param options.postWrite 書き込み後のメモリ更新方式
+   * @param options.noloading true時は postWrite: 'skip' として扱う
    */
   appendRecords(
     records: THash[] | TRow[],
     options?: {
+      postWrite?: 'reload' | 'sync' | 'skip';
+      /** @deprecated postWrite を使う */
       noloading?: boolean;
     }
   ): void;
@@ -207,11 +214,14 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   /**
    * 指定したレコードを削除
    * @param records レコード配列
-   * @param options.noloading true時、書き込み後の再読込を行わない
+   * @param options.postWrite 書き込み後のメモリ更新方式
+   * @param options.noloading true時は postWrite: 'skip' として扱う
    */
   deleteRecords(
     records: THash[] | TRow[],
     options?: {
+      postWrite?: 'reload' | 'sync' | 'skip';
+      /** @deprecated postWrite を使う */
       noloading?: boolean;
     }
   ): void;
@@ -219,11 +229,14 @@ declare class Table<THeader extends iHeader, TRow extends iRow, THash extends iH
   /**
    * 指定した行のレコードを削除
    * @param rows 行番号配列
-   * @param options.noloading true時、書き込み後の再読込を行わない
+   * @param options.postWrite 書き込み後のメモリ更新方式
+   * @param options.noloading true時は postWrite: 'skip' として扱う
    */
   deleteRecordsFromRow(
     rows: number[],
     options?: {
+      postWrite?: 'reload' | 'sync' | 'skip';
+      /** @deprecated postWrite を使う */
       noloading?: boolean;
     }
   ): void;
@@ -328,4 +341,3 @@ declare function buildTable<THeader extends iHeader, TRow extends iRow, THash ex
 declare const table_lib: {
   buildTable: typeof buildTable;
 };
-

@@ -450,7 +450,7 @@ describe('retry', () => {
     let call = 0
     const fn = () => {
       call++
-      if (call === 1) throw new Error('transient')
+      if (call === 1) throw new Error('Rate Limit Exceeded')
       return 'recovered'
     }
     expect(tbl.retry(fn)).toBe('recovered')
@@ -458,8 +458,28 @@ describe('retry', () => {
 
   it('maxRetries 回失敗したら例外を投げる', () => {
     const tbl = createTable('Sheet1!A1:Z100')
-    const fn = () => { throw new Error('persistent') }
-    expect(() => tbl.retry(fn, { maxRetries: 2 })).toThrowError('persistent')
+    const fn = () => { throw new Error('Backend Error') }
+    expect(() => tbl.retry(fn, { maxRetries: 2 })).toThrowError('Backend Error')
+  })
+
+  it('既定では一時エラーでないメッセージを即座に投げる', () => {
+    const tbl = createTable('Sheet1!A1:Z100')
+    const fn = vi.fn(() => { throw new Error('Unable to parse range') })
+    expect(() => tbl.retry(fn)).toThrowError('Unable to parse range')
+    expect(fn).toHaveBeenCalledTimes(1)
+  })
+
+  it('retryableErrors 明示時はメッセージに関係なく instanceof でリトライする', () => {
+    const tbl = createTable('Sheet1!A1:Z100')
+    class CustomError extends Error {}
+    let call = 0
+    const fn = () => {
+      call++
+      if (call === 1) throw new CustomError('permanent-looking message')
+      return 'recovered'
+    }
+    expect(tbl.retry(fn, { retryableErrors: [CustomError] })).toBe('recovered')
+    expect(call).toBe(2)
   })
 
   it('retryableErrors に含まれないエラーは即座に投げる', () => {
@@ -521,8 +541,9 @@ describe('applyDirtyRecords ファントムレコード防止 (T2)', () => {
   it('sync+rows+PKなし最小hashで既存行への部分マージになり、ファントムが増えない', () => {
     const tbl = setupTable('Sheet1!A1:C100', 'ID', ['ID', 'name', 'note'], [
       { ID: '1', name: 'Alice', note: 'orig' },
+      { ID: '2', name: 'Bob', note: 'keep' },
     ])
-    const row = tbl.records[0].row
+    const row = tbl.records[1].row
     const before = tbl.records.length
 
     tbl.updateRecords([{ note: 'updated' }], [row], { postWrite: 'sync' })
@@ -530,7 +551,8 @@ describe('applyDirtyRecords ファントムレコード防止 (T2)', () => {
     // ファントムレコードが追加されていない
     expect(tbl.records.length).toBe(before)
     // 既存レコードのハッシュに部分マージされている
-    expect(tbl.records[0].hash).toEqual({ ID: '1', name: 'Alice', note: 'updated' })
+    expect(tbl.records[0].hash).toEqual({ ID: '1', name: 'Alice', note: 'orig' })
+    expect(tbl.records[1].hash).toEqual({ ID: '2', name: 'Bob', note: 'updated' })
   })
 })
 
@@ -590,3 +612,320 @@ describe('updateRecords rows件数不一致 (T6)', () => {
     )).toThrowError(/updateRecords:.*rows.*1.*records.*2/)
   })
 })
+
+// ============================================================
+// save 行番号維持
+// ============================================================
+describe('save 行番号維持', () => {
+  it('全レコードの row を updateRecords に渡す', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '', name: 'No ID' },
+      { ID: '1', name: 'Alice' },
+    ]);
+    const updateRecordsSpy = vi.spyOn(tbl, 'updateRecords').mockImplementation(() => ({
+      dirty_rows: [],
+      dirty_records: [],
+    }));
+
+    tbl.save();
+
+    expect(updateRecordsSpy).toHaveBeenCalledWith(tbl.records, [2, 3]);
+  });
+
+  it('主キーが空でも末尾へ追記せず自分の行へ書き戻す', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '', name: 'No ID' },
+      { ID: '1', name: 'Alice' },
+    ]);
+    const batchUpdateSpy = vi.fn(() => ({}));
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = batchUpdateSpy;
+
+    tbl.save();
+
+    expect(batchUpdateSpy.mock.calls[0][0].data.map((item: any) => item.range)).toEqual([
+      'Sheet1!A2',
+      'Sheet1!A3',
+    ]);
+  });
+});
+
+// ============================================================
+// updateRecords 大量行・互換オプション
+// ============================================================
+describe('updateRecords v15', () => {
+  it('200,000件の dirty_rows でも RangeError を出さない', () => {
+    const tbl = setupTable('Sheet1!A1:A', 'ID', ['ID'], []);
+    const count = 200000;
+    const records = Array.from({ length: count }, (_, i) => ({ ID: String(i + 1) }));
+    const rows = Array.from({ length: count }, (_, i) => i + 2);
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchUpdate = () => ({});
+
+    expect(() => tbl.updateRecords(records, rows, { postWrite: 'skip' })).not.toThrow();
+  });
+
+  it('noloading: true を sync として扱う', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ]);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.updateRecords([{ name: 'Updated' }], [2], { noloading: true });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records[0].hash).toEqual({ ID: '1', name: 'Updated' });
+  });
+
+  it('postWrite を noloading より優先する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ]);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords').mockReturnValue(tbl.records);
+
+    tbl.updateRecords([{ name: 'Updated' }], [2], { postWrite: 'reload', noloading: true });
+
+    expect(getExistRecordsSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================
+// resetTable postWrite
+// ============================================================
+describe('resetTable postWrite', () => {
+  it('reload で全行を再読込する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], []);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords').mockReturnValue(tbl.records);
+
+    tbl.resetTable([{ ID: '1', name: 'Alice' }], { postWrite: 'reload' });
+
+    expect(getExistRecordsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sync で入力レコードからメモリを再構築する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: 'old', name: 'Old' },
+    ]);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.resetTable([{ ID: 'new', name: 'New' }], { postWrite: 'sync' });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records).toEqual([{
+      head: ['ID', 'name'],
+      hash: { ID: 'new', name: 'New' },
+      row: 2,
+    }]);
+    expect(tbl.hashes).toEqual([{ ID: 'new', name: 'New' }]);
+    expect(tbl.findRecord('new')).toBe(tbl.records[0]);
+    expect(tbl.findRecord('old')).toBeUndefined();
+  });
+
+  it('skip でメモリを更新しない', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: 'old', name: 'Old' },
+    ]);
+
+    tbl.resetTable([{ ID: 'new', name: 'New' }], { postWrite: 'skip' });
+
+    expect(tbl.hashes).toEqual([{ ID: 'old', name: 'Old' }]);
+  });
+
+  it('noloading: true を skip として扱う', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: 'old', name: 'Old' },
+    ]);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.resetTable([{ ID: 'new', name: 'New' }], { noloading: true });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.hashes).toEqual([{ ID: 'old', name: 'Old' }]);
+  });
+
+  it('head_row + 1 から update し resize を呼ぶ', () => {
+    const tbl = setupTable('Sheet1!B5:C100', 'ID', ['ID', 'name'], []);
+    const updateSpy = vi.fn(() => ({}));
+    const resizeSpy = vi.spyOn(tbl, 'resize');
+    ;(globalThis as any).Sheets.Spreadsheets.Values.update = updateSpy;
+
+    tbl.resetTable([{ ID: '1', name: 'Alice' }], { postWrite: 'skip' });
+
+    expect(updateSpy.mock.calls[0][2]).toBe('Sheet1!B6');
+    expect(resizeSpy).toHaveBeenCalledWith(6, 3);
+  });
+});
+
+// ============================================================
+// appendRecords postWrite
+// ============================================================
+describe('appendRecords postWrite', () => {
+  it('reload で全行を再読込する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], []);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords').mockReturnValue(tbl.records);
+
+    tbl.appendRecords([{ ID: '1', name: 'Alice' }], { postWrite: 'reload' });
+
+    expect(getExistRecordsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sync で書き込んだ行番号のレコードをメモリに追加する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ]);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.appendRecords([{ ID: '2', name: 'Bob' }], { postWrite: 'sync' });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records[1]).toEqual({
+      head: ['ID', 'name'],
+      hash: { ID: '2', name: 'Bob' },
+      row: 3,
+    });
+    expect(tbl.findRecord('2')).toBe(tbl.records[1]);
+  });
+
+  it('sync で重複主キーを追記しても新しい行としてメモリに追加する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ]);
+
+    tbl.appendRecords([{ ID: '1', name: 'Alice 2' }], { postWrite: 'sync' });
+
+    expect(tbl.records).toHaveLength(2);
+    expect(tbl.records[1]).toEqual({
+      head: ['ID', 'name'],
+      hash: { ID: '1', name: 'Alice 2' },
+      row: 3,
+    });
+    expect(tbl.findRecord('1')).toBe(tbl.records[1]);
+  });
+
+  it('skip でメモリを更新しない', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], []);
+
+    tbl.appendRecords([{ ID: '1', name: 'Alice' }], { postWrite: 'skip' });
+
+    expect(tbl.records).toEqual([]);
+  });
+
+  it('noloading: true を skip として扱う', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], []);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.appendRecords([{ ID: '1', name: 'Alice' }], { noloading: true });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records).toEqual([]);
+  });
+
+  it('lastRow() + 1 から update し resize を呼ぶ', () => {
+    const tbl = setupTable('Sheet1!B5:C100', 'ID', ['ID', 'name'], [
+      { ID: '1', name: 'Alice' },
+    ]);
+    const updateSpy = vi.fn(() => ({}));
+    const resizeSpy = vi.spyOn(tbl, 'resize');
+    ;(globalThis as any).Sheets.Spreadsheets.Values.update = updateSpy;
+
+    tbl.appendRecords([{ ID: '2', name: 'Bob' }], { postWrite: 'skip' });
+
+    expect(updateSpy.mock.calls[0][2]).toBe('Sheet1!B7');
+    expect(resizeSpy).toHaveBeenCalledWith(7, 3);
+  });
+});
+
+// ============================================================
+// deleteRecords postWrite
+// ============================================================
+describe('deleteRecords postWrite', () => {
+  const data = [
+    { ID: '1', name: 'Alice' },
+    { ID: '2', name: 'Bob' },
+  ];
+
+  it('reload で全行を再読込する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords').mockReturnValue(tbl.records);
+
+    tbl.deleteRecords([tbl.records[0]], { postWrite: 'reload' });
+
+    expect(getExistRecordsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sync で該当レコードをメモリから取り除く', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.deleteRecords([tbl.records[0]], { postWrite: 'sync' });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.hashes).toEqual([{ ID: '2', name: 'Bob' }]);
+    expect(tbl.findRecord('1')).toBeUndefined();
+    expect(tbl.findRecord('2')).toBe(tbl.records[0]);
+  });
+
+  it('skip でメモリを更新しない', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+
+    tbl.deleteRecords([tbl.records[0]], { postWrite: 'skip' });
+
+    expect(tbl.records).toHaveLength(2);
+  });
+
+  it('noloading: true を skip として扱う', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.deleteRecords([tbl.records[0]], { noloading: true });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records).toHaveLength(2);
+  });
+});
+
+// ============================================================
+// deleteRecordsFromRow postWrite
+// ============================================================
+describe('deleteRecordsFromRow postWrite', () => {
+  const data = [
+    { ID: '1', name: 'Alice' },
+    { ID: '2', name: 'Bob' },
+  ];
+
+  it('reload で全行を再読込する', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords').mockReturnValue(tbl.records);
+
+    tbl.deleteRecordsFromRow([2], { postWrite: 'reload' });
+
+    expect(getExistRecordsSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('sync で該当行のレコードをメモリから取り除く', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.deleteRecordsFromRow([3], { postWrite: 'sync' });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.hashes).toEqual([{ ID: '1', name: 'Alice' }]);
+    expect(tbl.findRecord('2')).toBeUndefined();
+  });
+
+  it('skip でメモリを更新しない', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+
+    tbl.deleteRecordsFromRow([2], { postWrite: 'skip' });
+
+    expect(tbl.records).toHaveLength(2);
+  });
+
+  it('noloading: true を skip として扱う', () => {
+    const tbl = setupTable('Sheet1!A1:B100', 'ID', ['ID', 'name'], data);
+    const getExistRecordsSpy = vi.spyOn(tbl, 'getExistRecords');
+
+    tbl.deleteRecordsFromRow([2], { noloading: true });
+
+    expect(getExistRecordsSpy).not.toHaveBeenCalled();
+    expect(tbl.records).toHaveLength(2);
+  });
+});

@@ -9,7 +9,7 @@ class PrivateFunc {
 
     // テーブルを全てクリアして、新規データベースをセット
     // - 既存データがあるならセット不要
-    tbl.resetTable([{ ID: '101', foo: 'test' }, { ID: '102', foo: 'test2' }])
+    tbl.resetTable([{ ID: '101', foo: 'test' }, { ID: '102', foo: 'test2' }]);
 
     // プロパティからアクセス
     console.log(tbl.head);
@@ -21,7 +21,7 @@ class PrivateFunc {
     // データを指定して更新
     const record = tbl.findRecord({ ID: '102' } as TableDef.Main.Hash);
     if (record) {
-      record.hash.foo = 'updated'
+      record.hash.foo = 'updated';
       tbl.updateRecords([record]);
     }
 
@@ -29,4 +29,3 @@ class PrivateFunc {
     tbl.appendRecords([{ ID: '1004', foo: 'appended' }]);
   }
 }
-

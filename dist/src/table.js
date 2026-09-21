@@ -1,4 +1,5 @@
 "use strict";
+/** gas_table_lib v0.15.0 */
 /** 指定した範囲のテーブルを読み書きするための抽象クラス */
 class Table {
     get ss() {
@@ -10,7 +11,8 @@ class Table {
     }
     /** Type Guard */
     static isTRow(value) {
-        return (value.row !== undefined && typeof value.row === 'number');
+        return typeof value === 'object' && value !== null
+            && 'row' in value && typeof value.row === 'number';
     }
     /**
      * Tableクラスコンストラクタ
@@ -174,8 +176,28 @@ class Table {
             this.retry(() => Sheets.Spreadsheets?.Values?.update({ values }, this.ssId, `${this.sheet}!${this.head_col}${start_row}`, { valueInputOption: 'USER_ENTERED' }));
         }
         // プロパティ更新
-        if (options.noloading !== true)
+        const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+        if (postWrite === 'sync') {
+            this.records = records.map((r, i) => {
+                const inputHash = Table.isTRow(r) ? r.hash : r;
+                const hash = {};
+                this.head.forEach((key) => {
+                    const value = inputHash[key];
+                    hash[key] = value === undefined || value === 'NaN' ? '' : value;
+                });
+                return this.rowFactory(this.head, hash, this.head_row + 1 + i);
+            });
+            this.hashes = this.records.map((record) => record.hash);
+            this.recordMap.clear();
+            this.records.forEach((record) => {
+                const pk = record.hash[this.primary_key];
+                if (pk)
+                    this.recordMap.set(pk, record);
+            });
+        }
+        else if (postWrite === 'reload') {
             this.getExistRecords();
+        }
     }
     /**
      * 指定したデータでシートを上書きする(一致するデータが無ければ末尾に追加)
@@ -214,14 +236,15 @@ class Table {
         });
         if (data.length > 0) {
             // 必要に応じてグリッドを拡張(flushとサイズ読み取りはresize内で必要なときだけ実行)
-            this.resize(Math.max(...dirty_rows), this.colname2number(this.head_col) + this.head.length - 1);
+            const max_dirty_row = dirty_rows.reduce((max, row) => Math.max(max, row));
+            this.resize(max_dirty_row, this.colname2number(this.head_col) + this.head.length - 1);
             // シートを上書き
             this.retry(() => Sheets.Spreadsheets?.Values?.batchUpdate({
                 valueInputOption: 'USER_ENTERED',
                 data,
             }, this.ssId));
             // メモリ更新
-            const postWrite = options.postWrite || 'reload';
+            const postWrite = options.postWrite || (options.noloading === true ? 'sync' : 'reload');
             if (postWrite === 'sync') {
                 if (this.recordMap.size === 0) {
                     this.getExistRecords();
@@ -235,51 +258,47 @@ class Table {
             }
             // 'skip' → 何もしない
         }
+        const dirtyRowSet = new Set(dirty_rows);
         return {
             dirty_rows,
-            dirty_records: this.records.filter((r) => dirty_rows.includes(r.row)),
+            dirty_records: this.records.filter((r) => dirtyRowSet.has(r.row)),
         };
     }
     /**
      * 書き込み済みデータをメモリ上のレコードにマージする (API再読込なし)
-     * - 既存レコード (primary_key一致): hash を部分マージ
+     * - 既存レコード (書き込み行一致): hash を部分マージ
      * - 新規レコード: 全カラムを空文字で初期化した上で hash をマージし、records/hashes/recordMap に追加
      */
     applyDirtyRecords(inputRecords, dirty_rows) {
+        const recordsByRow = new Map(this.records.map((record) => [record.row, record]));
         inputRecords.forEach((r, i) => {
             const inputHash = Table.isTRow(r) ? r.hash : r;
             const row = dirty_rows[i];
             const pk = inputHash[this.primary_key];
-            const existing = pk ? this.recordMap.get(pk) : undefined;
+            const existing = recordsByRow.get(row);
             if (existing) {
                 // UPDATE: 既存レコードのハッシュに部分マージ
                 Object.assign(existing.hash, inputHash);
+                if (pk)
+                    this.recordMap.set(pk, existing);
             }
             else {
-                // 主キー無しでも、同じ行のレコードが既にあれば部分マージ(ファントム追加による後続saveでのデータ消失を防ぐ)
-                const atRow = this.records.find((rec) => rec.row === row);
-                if (atRow) {
-                    Object.assign(atRow.hash, inputHash);
-                    if (pk)
-                        this.recordMap.set(pk, atRow);
-                }
-                else {
-                    // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
-                    const fullHash = {};
-                    this.head.forEach((k) => { fullHash[k] = ''; });
-                    Object.assign(fullHash, inputHash);
-                    const newRecord = this.rowFactory(this.head, fullHash, row);
-                    this.records.push(newRecord);
-                    this.hashes.push(fullHash);
-                    if (pk)
-                        this.recordMap.set(pk, newRecord);
-                }
+                // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
+                const fullHash = {};
+                this.head.forEach((k) => { fullHash[k] = ''; });
+                Object.assign(fullHash, inputHash);
+                const newRecord = this.rowFactory(this.head, fullHash, row);
+                this.records.push(newRecord);
+                this.hashes.push(fullHash);
+                recordsByRow.set(row, newRecord);
+                if (pk)
+                    this.recordMap.set(pk, newRecord);
             }
         });
     }
     /** recordsの内容をシートに反映 */
     save() {
-        this.updateRecords(this.records);
+        this.updateRecords(this.records, this.records.map((r) => r.row));
     }
     /** 指定したデータをテーブルの末尾に追記する */
     appendRecords(records, options = {}) {
@@ -292,8 +311,14 @@ class Table {
             this.resize(start_row + values.length - 1, this.colname2number(this.head_col) + this.head.length - 1);
             this.retry(() => Sheets.Spreadsheets?.Values?.update({ values }, this.ssId, `${this.sheet}!${this.head_col}${start_row}`, { valueInputOption: 'USER_ENTERED' }));
             // プロパティ更新
-            if (options.noloading !== true)
+            const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+            if (postWrite === 'sync') {
+                const dirty_rows = records.map((_, i) => start_row + i);
+                this.applyDirtyRecords(records, dirty_rows);
+            }
+            else if (postWrite === 'reload') {
                 this.getExistRecords();
+            }
         }
     }
     /** 指定したレコードを削除 */
@@ -312,8 +337,21 @@ class Table {
             valueInputOption: 'USER_ENTERED',
             data
         }, this.ssId));
-        if (options.noloading !== true)
+        const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+        if (postWrite === 'sync') {
+            const deletedRows = new Set(rows);
+            this.records = this.records.filter((record) => !deletedRows.has(record.row));
+            this.hashes = this.records.map((record) => record.hash);
+            this.recordMap.clear();
+            this.records.forEach((record) => {
+                const pk = record.hash[this.primary_key];
+                if (pk)
+                    this.recordMap.set(pk, record);
+            });
+        }
+        else if (postWrite === 'reload') {
             this.getExistRecords();
+        }
     }
     /** 指定した列でデータを並び替え */
     sortRecords(column, ascending = true) {
@@ -390,13 +428,17 @@ class Table {
      * 指定された関数を実行し、エラーが発生した場合はリトライする
      */
     retry(callback, options = {}) {
-        const { maxRetries = 3, delay = 500, backoffFactor = 1.5, retryableErrors = [Error] } = options;
+        const { maxRetries = 3, delay = 500, backoffFactor = 1.5, retryableErrors, } = options;
+        const transientErrorPattern = /rate limit|quota|too many|backend error|internal error|unavailable|timed out|timeout|temporarily|failed while accessing|server error/i;
         for (const i of [...Array(maxRetries).keys()]) {
             try {
                 return callback();
             }
             catch (e) {
-                if (i === maxRetries - 1 || !retryableErrors.some((err) => e instanceof err))
+                const retryable = retryableErrors
+                    ? retryableErrors.some((err) => e instanceof err)
+                    : e instanceof Error && transientErrorPattern.test(e.message);
+                if (i === maxRetries - 1 || !retryable)
                     throw e;
                 Utilities.sleep(delay * Math.pow(backoffFactor, i));
             }

@@ -1,6 +1,6 @@
 {
   "name": "gas_table_lib",
-  "version": "0.14.3",
+  "version": "0.15.0",
   "scripts": {
     "test": "vitest run",
     "build": "./node_modules/.bin/tsc",

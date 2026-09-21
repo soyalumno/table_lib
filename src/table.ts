@@ -1,4 +1,4 @@
-/** gas_table_lib v0.14.3 */
+/** gas_table_lib v0.15.0 */
 /** 指定した範囲のテーブルを読み書きするための抽象クラス */
 class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 見出し行番号 */
@@ -50,8 +50,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   valueRenderOption: 'FORMATTED_VALUE' | 'UNFORMATTED_VALUE' | 'FORMULA';
 
   /** Type Guard */
-  static isTRow<TRow extends iRow>(value: any): value is TRow {
-    return (value.row !== undefined && typeof value.row === 'number');
+  static isTRow<TRow extends iRow>(value: unknown): value is TRow {
+    return typeof value === 'object' && value !== null
+      && 'row' in value && typeof value.row === 'number';
   }
 
   /**
@@ -240,7 +241,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
   /** 指定したデータでテーブルを再作成する */
   resetTable(records: THash[] | TRow[], options: {
-    noloading?: boolean
+    postWrite?: 'reload' | 'sync' | 'skip',
+    /** @deprecated postWrite を使う */
+    noloading?: boolean,
   } = {}) {
     const values = records.map((r) => this.toValues(r));
     // シートをクリア
@@ -263,8 +266,26 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         ));
     }
     // プロパティ更新
-    if (options.noloading !== true)
+    const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+    if (postWrite === 'sync') {
+      this.records = records.map((r, i) => {
+        const inputHash = Table.isTRow(r) ? r.hash : r;
+        const hash = {} as THash;
+        this.head.forEach((key) => {
+          const value = inputHash[key];
+          (hash as iHash)[key] = value === undefined || value === 'NaN' ? '' : value;
+        });
+        return this.rowFactory(this.head, hash, this.head_row + 1 + i);
+      });
+      this.hashes = this.records.map((record) => record.hash as THash);
+      this.recordMap.clear();
+      this.records.forEach((record) => {
+        const pk = record.hash[this.primary_key];
+        if (pk) this.recordMap.set(pk, record);
+      });
+    } else if (postWrite === 'reload') {
       this.getExistRecords();
+    }
   }
 
   /**
@@ -277,7 +298,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
    *   - 'skip': 何もしない (メモリは stale のまま)
    */
   updateRecords(records: THash[] | TRow[], rows?: number[], options: {
-    postWrite?: 'reload' | 'sync' | 'skip'
+    postWrite?: 'reload' | 'sync' | 'skip',
+    /** @deprecated postWrite を使う */
+    noloading?: boolean,
   } = {}) {
     // rowsの件数がrecordsと不一致だと、対応関係がずれた行に黙って書き込まれデータ誤配置を招くため例外を投げる
     if (rows && rows.length !== records.length)
@@ -308,7 +331,8 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
 
     if (data.length > 0) {
       // 必要に応じてグリッドを拡張(flushとサイズ読み取りはresize内で必要なときだけ実行)
-      this.resize(Math.max(...dirty_rows), this.colname2number(this.head_col) + this.head.length - 1);
+      const max_dirty_row = dirty_rows.reduce((max, row) => Math.max(max, row));
+      this.resize(max_dirty_row, this.colname2number(this.head_col) + this.head.length - 1);
 
       // シートを上書き
       this.retry(() =>
@@ -318,7 +342,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         }, this.ssId));
 
       // メモリ更新
-      const postWrite = options.postWrite || 'reload';
+      const postWrite = options.postWrite || (options.noloading === true ? 'sync' : 'reload');
       if (postWrite === 'sync') {
         if (this.recordMap.size === 0) {
           this.getExistRecords();
@@ -330,58 +354,57 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
       }
       // 'skip' → 何もしない
     }
+    const dirtyRowSet = new Set(dirty_rows);
     return {
       dirty_rows,
-      dirty_records: this.records.filter((r) => dirty_rows.includes(r.row)),
+      dirty_records: this.records.filter((r) => dirtyRowSet.has(r.row)),
     };
   }
 
   /**
    * 書き込み済みデータをメモリ上のレコードにマージする (API再読込なし)
-   * - 既存レコード (primary_key一致): hash を部分マージ
+   * - 既存レコード (書き込み行一致): hash を部分マージ
    * - 新規レコード: 全カラムを空文字で初期化した上で hash をマージし、records/hashes/recordMap に追加
    */
   private applyDirtyRecords(
     inputRecords: (THash | TRow)[],
     dirty_rows: number[],
   ) {
+    const recordsByRow = new Map(this.records.map((record) => [record.row, record]));
     inputRecords.forEach((r, i) => {
       const inputHash = Table.isTRow(r) ? r.hash : r;
       const row = dirty_rows[i];
       const pk = inputHash[this.primary_key];
-      const existing = pk ? this.recordMap.get(pk) : undefined;
+      const existing = recordsByRow.get(row);
 
       if (existing) {
         // UPDATE: 既存レコードのハッシュに部分マージ
         Object.assign(existing.hash, inputHash);
+        if (pk) this.recordMap.set(pk, existing as TRow);
       } else {
-        // 主キー無しでも、同じ行のレコードが既にあれば部分マージ(ファントム追加による後続saveでのデータ消失を防ぐ)
-        const atRow = this.records.find((rec) => rec.row === row);
-        if (atRow) {
-          Object.assign(atRow.hash, inputHash);
-          if (pk) this.recordMap.set(pk, atRow as TRow);
-        } else {
-          // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
-          const fullHash = {} as THash;
-          this.head.forEach((k) => { (fullHash as iHash)[k] = ''; });
-          Object.assign(fullHash, inputHash);
-          const newRecord = this.rowFactory(this.head, fullHash, row);
-          this.records.push(newRecord as TRow);
-          this.hashes.push(fullHash);
-          if (pk) this.recordMap.set(pk, newRecord as TRow);
-        }
+        // APPEND: 全カラムを空文字で初期化 → 入力値で上書き
+        const fullHash = {} as THash;
+        this.head.forEach((k) => { (fullHash as iHash)[k] = ''; });
+        Object.assign(fullHash, inputHash);
+        const newRecord = this.rowFactory(this.head, fullHash, row);
+        this.records.push(newRecord as TRow);
+        this.hashes.push(fullHash);
+        recordsByRow.set(row, newRecord as TRow);
+        if (pk) this.recordMap.set(pk, newRecord as TRow);
       }
     });
   }
 
   /** recordsの内容をシートに反映 */
   save() {
-    this.updateRecords(this.records);
+    this.updateRecords(this.records, this.records.map((r) => r.row));
   }
 
   /** 指定したデータをテーブルの末尾に追記する */
   appendRecords(records: THash[] | TRow[], options: {
-    noloading?: boolean
+    postWrite?: 'reload' | 'sync' | 'skip',
+    /** @deprecated postWrite を使う */
+    noloading?: boolean,
   } = {}) {
     // 追記用二次元配列を生成
     const values = records.map((r) => this.toValues(r));
@@ -398,14 +421,21 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
           { valueInputOption: 'USER_ENTERED' }
         ));
       // プロパティ更新
-      if (options.noloading !== true)
+      const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+      if (postWrite === 'sync') {
+        const dirty_rows = records.map((_, i) => start_row + i);
+        this.applyDirtyRecords(records, dirty_rows);
+      } else if (postWrite === 'reload') {
         this.getExistRecords();
+      }
     }
   }
 
   /** 指定したレコードを削除 */
   deleteRecords(records: THash[] | TRow[], options: {
-    noloading?: boolean
+    postWrite?: 'reload' | 'sync' | 'skip',
+    /** @deprecated postWrite を使う */
+    noloading?: boolean,
   } = {}) {
     const rows = records
       .map((record) => Table.isTRow(record) ? record.row : this.findRecord(record)?.row)
@@ -413,7 +443,9 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.deleteRecordsFromRow(rows, options);
   }
   deleteRecordsFromRow(rows: number[], options: {
-    noloading?: boolean
+    postWrite?: 'reload' | 'sync' | 'skip',
+    /** @deprecated postWrite を使う */
+    noloading?: boolean,
   } = {}) {
     const data = rows.map((row): GoogleAppsScript.Sheets.Schema.ValueRange => ({
       range: `${this.sheet}!${this.head_col}${row}`,
@@ -424,8 +456,19 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
         valueInputOption: 'USER_ENTERED',
         data
       }, this.ssId));
-    if (options.noloading !== true)
+    const postWrite = options.postWrite || (options.noloading === true ? 'skip' : 'reload');
+    if (postWrite === 'sync') {
+      const deletedRows = new Set(rows);
+      this.records = this.records.filter((record) => !deletedRows.has(record.row));
+      this.hashes = this.records.map((record) => record.hash as THash);
+      this.recordMap.clear();
+      this.records.forEach((record) => {
+        const pk = record.hash[this.primary_key];
+        if (pk) this.recordMap.set(pk, record);
+      });
+    } else if (postWrite === 'reload') {
       this.getExistRecords();
+    }
   }
 
   /** 指定した列でデータを並び替え */
@@ -506,26 +549,30 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
    * 指定された関数を実行し、エラーが発生した場合はリトライする
    */
   retry<T>(
-    callback: (...args: any[]) => T,
+    callback: (...args: never[]) => T,
     options: {
       maxRetries?: number,
       delay?: number,
       backoffFactor?: number,
-      retryableErrors?: (new (...args: any[]) => Error)[]
+      retryableErrors?: (new (...args: never[]) => Error)[]
     } = {},
   ): T {
     const {
       maxRetries = 3,
       delay = 500,
       backoffFactor = 1.5,
-      retryableErrors = [Error]
+      retryableErrors,
     } = options;
+    const transientErrorPattern = /rate limit|quota|too many|backend error|internal error|unavailable|timed out|timeout|temporarily|failed while accessing|server error/i;
 
     for (const i of [...Array(maxRetries).keys()]) {
       try {
         return callback();
       } catch (e) {
-        if (i === maxRetries - 1 || !retryableErrors.some((err) => e instanceof err))
+        const retryable = retryableErrors
+          ? retryableErrors.some((err) => e instanceof err)
+          : e instanceof Error && transientErrorPattern.test(e.message);
+        if (i === maxRetries - 1 || !retryable)
           throw e;
         Utilities.sleep(delay * Math.pow(backoffFactor, i));
       }
@@ -534,19 +581,19 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 
   /** Range.getValuesのラッパー */
-  getValues(range: string): any[][] {
+  getValues(range: string): CellValue[][] {
     return this.ss.getRange(`${this.sheet}!${range}`).getValues();
   }
   /** Range.getValueのラッパー */
-  getValue(range: string): any {
+  getValue(range: string): CellValue {
     return this.ss.getRange(`${this.sheet}!${range}`).getValues().flat()[0];
   }
   /** Range.setValuesのラッパー */
-  setValues(range: string, values: string[][]) {
+  setValues(range: string, values: CellValue[][]) {
     this.ss.getRange(`${this.sheet}!${range}`).setValues(values);
   }
   /** Range.setValueのラッパー */
-  setValue(range: string, value: any) {
+  setValue(range: string, value: CellValue) {
     this.ss.getRange(`${this.sheet}!${range}`).setValues([[value]]);
   }
 
@@ -574,7 +621,7 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   }
 
   /** 二次元のテーブルデータを見出しをキーとしたオブジェクト配列に変換する */
-  private toHash(df: any[][], option?: { useFirstColumn: boolean }): THash[] {
+  private toHash(df: CellValue[][], option?: { useFirstColumn: boolean }): THash[] {
     const useFirstColumn = option?.useFirstColumn ?? this.toHashOption?.useFirstColumn ?? true;
     const [head, ...values_arr] = df;
 

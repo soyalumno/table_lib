@@ -30,15 +30,16 @@ https://user-images.githubusercontent.com/33917383/236586101-5f837378-581f-4e76-
 
 ### 📌バージョン対応
 
-利用側は `clasp` のライブラリバージョン番号（整数）でpinして参照しています。`npx clasp versions` で確認できるデプロイ済みバージョンと、リポジトリ側の変更内容の対応です（説明文・git履歴から対応が特定できる行のみ記載）。
+利用側は `clasp` のライブラリバージョン番号（整数）でpinして参照しています。`npx clasp versions` で確認できるデプロイ済みバージョンと、リポジトリ側の変更内容の対応です。
 
 | デプロイ版(clasp version) | 対応コミット | 主な変更点 |
 |---|---|---|
-| 14（最新） | `cf5cdb6` | applyDirtyRecords追加（updateRecordsのnoloading時メモリマージ） |
+| 15（予定） | 未コミット | save行ずれ修正・postWrite統一・retry判定・append書き込み位置修正（5f25f01） |
+| 14（最新） | `ad48bd5` | applyDirtyRecords追加（updateRecordsのnoloading時メモリマージ） |
 | 1〜13 | 対応不明（今後deploy時に記入） | clasp versions側に説明文が無く特定不可 |
 
-- clasp version 14 の説明文「applyDirtyRecords (noloading時メモリマージ)」と、コミット `cf5cdb6`（`feat: updateRecords に noloading 時のメモリマージ (applyDirtyRecords) を追加`）のメッセージが一致することを確認して記載しています
-- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.14.3`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更（eslintrc修正・append安全性強化等）を含みます
+- clasp version 14 は、`clasp pull --versionNumber 14` の実コードとコミット `ad48bd5` の `src` をビルドした結果がmd5一致（2026-09-21確認）
+- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.15.0`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更を含みます
 - **運用注記**: 今後ライブラリを新規デプロイした際は、この表へ「デプロイ版番号 = package.jsonバージョン（コミットハッシュ）: 変更概要」の形式で1行追記してください
 
 ### Tableインスタンスの生成
@@ -170,16 +171,22 @@ constructor(
 #### `migration(head: THeader[])`
 ヘッダー行を変更します。既存のヘッダーと同じ場合は何もしません。
 
-#### `resetTable(records: THash[] | TRow[], options = { noloading?: boolean })`
+#### `resetTable(records: THash[] | TRow[], options = { postWrite?: 'reload' | 'sync' | 'skip', noloading?: boolean })`
 指定したデータでテーブルを再作成します。既存データは削除されます。
+- `options.postWrite`: 書き込み後のメモリ更新方式
+    - `'reload'`（デフォルト）: `getExistRecords()`でシート全行を再読込します
+    - `'sync'`: 入力レコードから`records`、`hashes`、内部インデックスを再構築します
+    - `'skip'`: 何もしません（メモリはstaleのまま）
+- `options.noloading`: 非推奨。`true`は`postWrite: 'skip'`として扱います。両方指定した場合は`postWrite`が優先されます
 
-#### `updateRecords(records: THash[] | TRow[], rows?: number[], options = { postWrite?: 'reload' | 'sync' | 'skip' })`
+#### `updateRecords(records: THash[] | TRow[], rows?: number[], options = { postWrite?: 'reload' | 'sync' | 'skip', noloading?: boolean })`
 指定したデータでシートを上書きします。一致するデータが無ければ末尾に追加します。
 - `rows`: 書き込み先の行番号を指定できます
 - `options.postWrite`: 書き込み後のメモリ更新方式
     - `'reload'`（デフォルト）: `getExistRecords()`でシート全行を再読込します
     - `'sync'`: 書き込んだ内容だけをメモリ上のレコードにマージします（APIコール0回）。内部インデックス（recordMap）が空の場合は`'reload'`にフォールバックします。数式セルの計算結果はメモリに反映されない点に注意してください
     - `'skip'`: 何もしません（メモリはstaleのまま）
+- `options.noloading`: 非推奨。`true`は`postWrite: 'sync'`として扱います。両方指定した場合は`postWrite`が優先されます
 
 ##### 部分ハッシュによる特定列だけの更新
 
@@ -194,17 +201,20 @@ tbl.updateRecords([{ note: '更新メモ' }], [3]);
 #### `save()`
 `records`の内容をシートに反映します。
 
-#### `appendRecords(records: THash[] | TRow[], options = { noloading?: boolean })`
+#### `appendRecords(records: THash[] | TRow[], options = { postWrite?: 'reload' | 'sync' | 'skip', noloading?: boolean })`
 指定したデータをテーブルの末尾に追記します。
-- `options.noloading`: `true`で書き込み後の再読込を省略します
+- `options.postWrite`: `'reload'`（デフォルト）は全行再読込、`'sync'`は書き込んだ行をメモリへ追加、`'skip'`はメモリを更新しません
+- `options.noloading`: 非推奨。`true`は`postWrite: 'skip'`として扱います。両方指定した場合は`postWrite`が優先されます
 
-#### `deleteRecords(records: THash[] | TRow[], options = { noloading?: boolean })`
+#### `deleteRecords(records: THash[] | TRow[], options = { postWrite?: 'reload' | 'sync' | 'skip', noloading?: boolean })`
 指定したレコードを削除します（行を空白にします）。
-- `options.noloading`: `true`で書き込み後の再読込を省略します
+- `options.postWrite`: `'reload'`（デフォルト）は全行再読込、`'sync'`は該当レコードをメモリから削除、`'skip'`はメモリを更新しません
+- `options.noloading`: 非推奨。`true`は`postWrite: 'skip'`として扱います。両方指定した場合は`postWrite`が優先されます
 
-#### `deleteRecordsFromRow(rows: number[], options = { noloading?: boolean })`
+#### `deleteRecordsFromRow(rows: number[], options = { postWrite?: 'reload' | 'sync' | 'skip', noloading?: boolean })`
 指定した行番号のレコードを削除します。
-- `options.noloading`: `true`で書き込み後の再読込を省略します
+- `options.postWrite`: `'reload'`（デフォルト）は全行再読込、`'sync'`は該当行のレコードをメモリから削除、`'skip'`はメモリを更新しません
+- `options.noloading`: 非推奨。`true`は`postWrite: 'skip'`として扱います。両方指定した場合は`postWrite`が優先されます
 
 #### `sortRecords(column: THeader, ascending = true)`
 指定した列でデータを並び替えます。
@@ -268,7 +278,9 @@ tbl.updateRecords([{ note: '更新メモ' }], [3]);
 - `options.maxRetries`: 最大リトライ回数（デフォルト: 3）
 - `options.delay`: 初回リトライまでの遅延時間（ミリ秒、デフォルト: 500）
 - `options.backoffFactor`: バックオフ係数（デフォルト: 1.5）
-- `options.retryableErrors`: リトライ対象のエラークラス（デフォルト: [Error]）
+- `options.retryableErrors`: リトライ対象のエラークラス。明示時は従来どおり`instanceof`で判定します
+
+`retryableErrors`を省略した場合は、エラーメッセージが一時エラーを示すパターン（`rate limit`、`quota`、`too many`、`backend error`、`internal error`、`unavailable`、`timed out`、`timeout`、`temporarily`、`failed while accessing`、`server error`。大文字小文字は区別しない）に一致するときだけリトライします。範囲文字列の誤りなど、一時的でないエラーは即座に再送出します。
 
 ## スタティックメソッド
 
