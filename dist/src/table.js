@@ -1,5 +1,5 @@
 "use strict";
-/** gas_table_lib v0.15.0 */
+/** gas_table_lib v0.15.1 */
 /** 指定した範囲のテーブルを読み書きするための抽象クラス */
 class Table {
     get ss() {
