@@ -34,12 +34,14 @@ https://user-images.githubusercontent.com/33917383/236586101-5f837378-581f-4e76-
 
 | デプロイ版(clasp version) | 対応コミット | 主な変更点 |
 |---|---|---|
-| 15（最新） | tag `v15`（0.15.1） | save行ずれ修正・postWrite統一・retry判定・append書き込み位置修正（5f25f01）。GAS内検証 `doTest_` を同梱 |
+| 16（最新） | tag `v16`（0.15.2） | 主キー重複の警告を、読み込み1回につき1行（件数＋例3件）にまとめた |
+| 15 | tag `v15`（0.15.1） | save行ずれ修正・postWrite統一・retry判定・append書き込み位置修正（5f25f01）。GAS内検証 `doTest_` を同梱 |
 | 14 | `ad48bd5` | applyDirtyRecords追加（updateRecordsのnoloading時メモリマージ） |
 | 1〜13 | 対応不明（今後deploy時に記入） | clasp versions側に説明文が無く特定不可 |
 
+- clasp version 16 は、`clasp pull --versionNumber 16` の `src/table.js` と tag `v16` の `dist/src/table.js` がmd5一致（2026-11-13確認）
 - clasp version 14 は、`clasp pull --versionNumber 14` の実コードとコミット `ad48bd5` の `src` をビルドした結果がmd5一致（2026-09-21確認）
-- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.15.1`（本ドキュメント更新時点）で、デプロイ版14以降の未デプロイ変更を含みます
+- `package.json` の `version` フィールドはこれより後のコミット `50de79f`（0.14.0）で導入されたため、デプロイ版14を厳密な`package.json`バージョン番号に対応させることはできません。現在の`package.json`は`0.15.2`（本ドキュメント更新時点。デプロイ版16と同じ内容）です
 - **運用注記**: 今後ライブラリを新規デプロイした際は、この表へ「デプロイ版番号 = package.jsonバージョン（コミットハッシュ）: 変更概要」の形式で1行追記してください
 
 ### Tableインスタンスの生成

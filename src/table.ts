@@ -1,4 +1,4 @@
-/** gas_table_lib v0.15.1 */
+/** gas_table_lib v0.15.2 */
 /** 指定した範囲のテーブルを読み書きするための抽象クラス */
 class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
   /** 見出し行番号 */
@@ -220,18 +220,26 @@ class Table<THeader extends iHeader, TRow extends iRow, THash extends iHash> {
     this.primary_key === '' && (this.primary_key = head?.[0] || 'id');
 
     const hashes = this.toHash(df);
+    // 重複主キーは後勝ちで上書きされ、findRecordが最後の行を返すため、読み込み1回につき1行にまとめて警告する
+    let dupCount = 0;
+    const dupSamples: string[] = [];
     const records = hashes.map((hash, i) => {
       const record = this.rowFactory(head, hash, this.head_row + 1 + this.offset + i);
       // primary_keyが存在する場合はMapに登録
       const PK = hash[this.primary_key];
       if (PK) {
-        // 重複主キーは後勝ちで上書きされ、findRecordが最後の行を返すため警告する
-        if (this.recordMap.has(PK))
-          console.warn(`Table: 主キー "${PK}" が重複しています (テーブル: ${this.range})。findRecordは最後の行を返します`);
+        if (this.recordMap.has(PK)) {
+          dupCount++;
+          if (dupSamples.length < 3 && !dupSamples.includes(PK)) dupSamples.push(PK);
+        }
         this.recordMap.set(PK, record as TRow);
       }
       return record;
     });
+    if (dupCount > 0) {
+      const samples = dupSamples.map((s) => `"${s}"`).join(', ');
+      console.warn(`Table: 主キー "${this.primary_key}" の重複が ${dupCount}件あります (テーブル: ${this.range})。例: ${samples}。findRecordは最後の行を返します`);
+    }
 
     this.head = head;
     this.records = records;

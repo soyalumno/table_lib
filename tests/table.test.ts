@@ -507,30 +507,45 @@ describe('buildTable', () => {
 // 重複主キー警告 (C-8)
 // ============================================================
 describe('重複主キー警告', () => {
-  it('重複PKで console.warn が呼ばれる', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-
-    // batchGet が重複PKを含むデータを返すようモック
-    ;(globalThis as any).Sheets.Spreadsheets.Values.batchGet = () => ({
-      valueRanges: [{
-        values: [
-          ['ID', 'name'],
-          ['1', 'Alice'],
-          ['1', 'Alice-dup'],
-        ]
-      }]
-    })
-
-    const tbl = createTable('Sheet1!A1:B100', 'ID')
-    tbl.getExistRecords()
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('主キー "1" が重複しています')
-    )
-    warnSpy.mockRestore()
-
-    // batchGet を元に戻す
+  const mockBatchGet = (values: string[][]) => {
+    ;(globalThis as any).Sheets.Spreadsheets.Values.batchGet = () => ({ valueRanges: [{ values }] })
+  }
+  const restoreBatchGet = () => {
     ;(globalThis as any).Sheets.Spreadsheets.Values.batchGet = () => ({ valueRanges: [] })
+  }
+
+  it('重複が複数あっても console.warn は読み込み1回につき1回だけ（件数と例を含む）', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockBatchGet([
+      ['ID', 'name'],
+      ['1', 'a'], ['1', 'b'], ['1', 'c'],
+      ['2', 'd'], ['2', 'e'],
+      ['3', 'f'], ['3', 'g'],
+      ['4', 'h'], ['4', 'i'],
+      ['5', 'j'],
+    ])
+
+    createTable('Sheet1!A1:B100', 'ID').getExistRecords()
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    const msg = warnSpy.mock.calls[0][0] as string
+    expect(msg).toContain('主キー "ID" の重複が 5件あります')
+    expect(msg).toContain('(テーブル: Sheet1!A1:B100)')
+    expect(msg).toContain('例: "1", "2", "3"。')
+    expect(msg).not.toContain('"4"')
+    warnSpy.mockRestore()
+    restoreBatchGet()
+  })
+
+  it('重複が無ければ console.warn は呼ばれない', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockBatchGet([['ID', 'name'], ['1', 'a'], ['2', 'b']])
+
+    createTable('Sheet1!A1:B100', 'ID').getExistRecords()
+
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+    restoreBatchGet()
   })
 })
 
